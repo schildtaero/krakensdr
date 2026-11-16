@@ -1,0 +1,34 @@
+\usepackage{xcolor}
+\usepackage{fancyhdr}
+\usepackage{titlesec}
+\usepackage{microtype}
+\usepackage{etoolbox}
+\usepackage{ragged2e}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\AtBeginEnvironment{longtable}{\small}
+\definecolor{dfink}{HTML}{142B38}
+\definecolor{dfcyan}{HTML}{007F91}
+\definecolor{dfmuted}{HTML}{516572}
+\definecolor{dflight}{HTML}{EAF4F6}
+\AtBeginDocument{\hypersetup{colorlinks=true,linkcolor=dfcyan,urlcolor=dfcyan,pdftitle={KrakenDF – Funktion und Bedienung},pdfauthor={KrakenDF Projekt},pdfsubject={Direction Finding mit KrakenSDR, BFT und ARCELI VK-162}}}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\fontsize{8}{10}\selectfont\textcolor{dfmuted}{KRAKENDF\quad /\quad FUNKTION UND BEDIENUNG}}
+\fancyhead[R]{\fontsize{8}{10}\selectfont\textcolor{dfmuted}{SOFTWARE 0.2.1}}
+\fancyfoot[L]{\fontsize{8}{10}\selectfont\textcolor{dfmuted}{Dokumentation · 16. November 2026}}
+\fancyfoot[R]{\fontsize{9}{10}\selectfont\textcolor{dfink}{\thepage}}
+\renewcommand{\headrulewidth}{0.3pt}
+\renewcommand{\footrulewidth}{0pt}
+\setlength{\headheight}{15pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{6pt}
+\setlength{\emergencystretch}{3em}
+\titleformat{\section}{\color{dfink}\fontsize{22}{26}\selectfont\bfseries\raggedright}{\textcolor{dfcyan}{\thesection}}{0.7em}{}
+\titleformat{\subsection}{\color{dfcyan}\large\bfseries}{\thesubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{0pt}{14pt}
+\titlespacing*{\subsection}{0pt}{10pt}{5pt}
+\renewcommand{\contentsname}{Inhalt}
+\setcounter{tocdepth}{1}
+\setcounter{secnumdepth}{1}
+\AtBeginDocument{\color{dfink}\raggedright}

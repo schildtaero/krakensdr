@@ -119,6 +119,7 @@ LoRa bleibt als **experimentell / Hardwareabnahme offen** gekennzeichnet. Die re
 
 ## Dokumentation
 
+- [PDF-Handbuch: Funktion und Bedienung](docs/KrakenDF-Funktion-und-Bedienung.pdf) — Peilprinzip, Antennenaufbau, Heading, Livebetrieb, Kalibrierung und RMS; [bearbeitbare Quelle](docs/df-handbuch.md), [PDF neu erstellen](docs/pdf-erstellen.md).
 - [Spezifikation](docs/spezifikation.md) — ursprünglicher Entwurf; Umsetzung und Abweichungen siehe diese README.
 - [Antennenmaße und Kanalzuordnung](docs/antennen.md)
 - [Hardwareprotokoll](docs/hardware.md)
