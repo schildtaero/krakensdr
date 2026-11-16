@@ -1,0 +1,56 @@
+name: Software and bundled DAQ checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      OPENBLAS_NUM_THREADS: "1"
+      OMP_NUM_THREADS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake pkg-config patch libusb-1.0-0-dev libzmq3-dev python3-venv ca-certificates
+      - name: Install and build without USB or system configuration changes
+        run: KRAKENDF_PYTHON="$(command -v python)" bash ./setup.sh --skip-system
+      - name: Verify installed runtime
+        run: bash ./setup.sh --check
+      - name: Test software, TCP framing, decoders and DAQ lifecycle
+        run: .venv/bin/python -m unittest discover -s tests -v
+      - name: Frontend and shell syntax
+        run: |
+          node --check krakendf/static/app.js
+          node --check krakendf/static/map.js
+          bash -n start.sh setup.sh scripts/setup-wsl.sh
+
+  powershell-syntax:
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse Windows scripts without installing WSL or accessing USB
+        shell: powershell
+        run: |
+          $scripts = Get-ChildItem -Path . -Filter *.ps1
+          foreach ($script in $scripts) {
+            $tokens = $null
+            $parseErrors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$tokens, [ref]$parseErrors) | Out-Null
+            if ($parseErrors.Count -gt 0) {
+              $parseErrors | ForEach-Object { Write-Host $_.Message }
+              throw "PowerShell syntax failed: $($script.Name)"
+            }
+          }

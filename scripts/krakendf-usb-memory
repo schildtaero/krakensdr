@@ -1,0 +1,14 @@
+#!/bin/sh
+# Called by the narrowly scoped Kraken USB udev rule, and once by setup.
+# Finite 256 MiB USB-transfer budget; preserve an existing larger/unlimited one.
+set -eu
+parameter=/sys/module/usbcore/parameters/usbfs_memory_mb
+if [ -r "$parameter" ] && [ -w "$parameter" ]; then
+  current=$(cat "$parameter")
+  case "$current" in
+    ''|*[!0-9]*) exit 1 ;;
+  esac
+  if [ "$current" -ne 0 ] && [ "$current" -lt 256 ]; then
+    echo 256 > "$parameter"
+  fi
+fi

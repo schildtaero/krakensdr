@@ -1,0 +1,6 @@
+# Coherent synchronizer dependencies; isolated from the system Python.
+# Bound NumPy for the pinned upstream synchronizer and Numba compatibility.
+numpy>=1.26,<2.3
+pyzmq>=25,<28
+scikit-rf>=1.0,<2
+numba>=0.61,<0.64

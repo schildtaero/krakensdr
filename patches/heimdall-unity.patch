@@ -1,0 +1,29 @@
+--- a/Firmware/_daq_core/fir_decimate.c
++++ b/Firmware/_daq_core/fir_decimate.c
+@@ -36,7 +36,13 @@
+ #include "sh_mem_util.h"
+ #include "rtl_daq.h"
+ 
+-#ifdef ARM_NEON
++/* KrakenDF modification, 2026-11-12: full-rate converter only.
++ * Native decimation is deliberately disabled; the application performs its
++ * identical five-channel filtering. No KFR/NE10 library is required here.
++ */
++#ifdef KRAKENDF_UNITY_ONLY
++#include "krakendf_unity.h"
++#elif defined(ARM_NEON)
+ #include "NE10.h"
+ #else
+ #include <kfr/capi.h>
+@@ -112,6 +118,11 @@
+     /* Set parameters from the config file*/
+     if (ini_parse(INI_FNAME, handler, &config) < 0) {FATAL_ERR("Configuration could not be loaded, exiting ..")}
+     
++#ifdef KRAKENDF_UNITY_ONLY
++    if (config.decimation_ratio != 1 || config.tap_size != 1) {
++        FATAL_ERR("KrakenDF full-rate converter requires decimation_ratio=1 and fir_tap_size=1")
++    }
++#endif
+     ch_no = config.num_ch;
+     dec = config.decimation_ratio;
+     filter_reset = (bool) config.en_filter_reset;

@@ -1,0 +1,105 @@
+{
+  "schema_version": 1,
+  "units": "m",
+  "nominal_frequency_hz": 433000000,
+  "coordinate_system": {
+    "frame": "array_local",
+    "x_positive": "right",
+    "y_positive": "front",
+    "z_positive": "up",
+    "origin": "array_center",
+    "azimuth_zero_axis": "+y",
+    "azimuth_positive_rotation": "clockwise_viewed_from_above",
+    "azimuth_unit": "deg",
+    "position_reference": "antenna_mount_center_idealized_phase_center"
+  },
+  "hardware_channel_count": 5,
+  "steering_model": "explicit_coordinates",
+  "geometry_notes": [
+    "Coordinates identify physical KrakenSDR input channels 0 through 4; cable labels must match.",
+    "All antennas are assumed identical, vertical and at the same height.",
+    "Aperture values describe antenna-center geometry and exclude antenna bodies and mounting bases.",
+    "Antenna geometry alone does not guarantee ambiguity-free bearings or a specified DF accuracy.",
+    "External cables, mounting surface, coupling and propagation conditions require separate assessment."
+  ],
+  "presets": [
+    {
+      "id": "uca_300mm",
+      "name": "Kreis kompakt – 300 mm",
+      "layout": "uniform_circular_array",
+      "recommended_start": false,
+      "channel_order": "CH0 front; CH1 through CH4 clockwise in 72 degree steps",
+      "dimensions": {
+        "circle_diameter_m": 0.3,
+        "circle_radius_m": 0.15,
+        "adjacent_element_spacing_m": 0.176335575687742,
+        "azimuth_step_deg": 72
+      },
+      "physical_aperture": {
+        "maximum_element_separation_m": 0.285316954888546,
+        "bounding_box_width_x_m": 0.285316954888546,
+        "bounding_box_depth_y_m": 0.271352549156242,
+        "bounding_box_height_z_m": 0.0
+      },
+      "antennas": [
+        { "hardware_channel": 0, "x_m": 0.0, "y_m": 0.15, "z_m": 0.0 },
+        { "hardware_channel": 1, "x_m": 0.142658477444273, "y_m": 0.046352549156242, "z_m": 0.0 },
+        { "hardware_channel": 2, "x_m": 0.088167787843871, "y_m": -0.121352549156242, "z_m": 0.0 },
+        { "hardware_channel": 3, "x_m": -0.088167787843871, "y_m": -0.121352549156242, "z_m": 0.0 },
+        { "hardware_channel": 4, "x_m": -0.142658477444273, "y_m": 0.046352549156242, "z_m": 0.0 }
+      ]
+    },
+    {
+      "id": "uca_560mm",
+      "name": "Kreis groß – 560 mm",
+      "layout": "uniform_circular_array",
+      "recommended_start": true,
+      "channel_order": "CH0 front; CH1 through CH4 clockwise in 72 degree steps",
+      "dimensions": {
+        "circle_diameter_m": 0.56,
+        "circle_radius_m": 0.28,
+        "adjacent_element_spacing_m": 0.329159741283785,
+        "azimuth_step_deg": 72
+      },
+      "physical_aperture": {
+        "maximum_element_separation_m": 0.532591649125286,
+        "bounding_box_width_x_m": 0.532591649125286,
+        "bounding_box_depth_y_m": 0.506524758424985,
+        "bounding_box_height_z_m": 0.0
+      },
+      "antennas": [
+        { "hardware_channel": 0, "x_m": 0.0, "y_m": 0.28, "z_m": 0.0 },
+        { "hardware_channel": 1, "x_m": 0.266295824562643, "y_m": 0.086524758424985, "z_m": 0.0 },
+        { "hardware_channel": 2, "x_m": 0.164579870641893, "y_m": -0.226524758424985, "z_m": 0.0 },
+        { "hardware_channel": 3, "x_m": -0.164579870641893, "y_m": -0.226524758424985, "z_m": 0.0 },
+        { "hardware_channel": 4, "x_m": -0.266295824562643, "y_m": 0.086524758424985, "z_m": 0.0 }
+      ]
+    },
+    {
+      "id": "square_center_320mm",
+      "name": "Quadrat mit Mitte – 320 mm",
+      "layout": "square_with_center",
+      "recommended_start": false,
+      "channel_order": "CH0 front-left; CH1 front-right; CH2 rear-right; CH3 rear-left; CH4 center",
+      "dimensions": {
+        "square_side_m": 0.32,
+        "corner_to_center_spacing_m": 0.226274169979695,
+        "adjacent_corner_spacing_m": 0.32,
+        "square_diagonal_m": 0.45254833995939
+      },
+      "physical_aperture": {
+        "maximum_element_separation_m": 0.45254833995939,
+        "bounding_box_width_x_m": 0.32,
+        "bounding_box_depth_y_m": 0.32,
+        "bounding_box_height_z_m": 0.0
+      },
+      "antennas": [
+        { "hardware_channel": 0, "x_m": -0.16, "y_m": 0.16, "z_m": 0.0 },
+        { "hardware_channel": 1, "x_m": 0.16, "y_m": 0.16, "z_m": 0.0 },
+        { "hardware_channel": 2, "x_m": 0.16, "y_m": -0.16, "z_m": 0.0 },
+        { "hardware_channel": 3, "x_m": -0.16, "y_m": -0.16, "z_m": 0.0 },
+        { "hardware_channel": 4, "x_m": 0.0, "y_m": 0.0, "z_m": 0.0 }
+      ]
+    }
+  ]
+}

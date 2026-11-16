@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#11171c">
+  <meta name="description" content="Lokale KrakenSDR-Konsole für Peilung, BFT-Tracking und reproduzierbare DF-Messungen.">
+  <title>KrakenDF · Direction Finding</title>
+  <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/map.css">
+  <script defer src="/static/vendor/leaflet/leaflet.js"></script>
+  <script defer src="/static/vendor/milsymbol/milsymbol.js"></script>
+  <script defer src="/static/map.js"></script>
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <svg class="svg-defs" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><path d="M12 3v9l6-6"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 12h3l3-8 4 16 4-12 3 4h3"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 3v17h17M8 15l4-5 4 2 5-7"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7V5h6l2 2h10v13H3z"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15A9 9 0 0 1 9 4 9 9 0 1 0 20 15z"/></symbol>
+    <symbol id="i-crosshair" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><path d="M12 2v5m0 10v5M2 12h5m10 0h5"/><circle cx="12" cy="12" r="1"/></symbol>
+    <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m8 4 12 8-12 8z"/></symbol>
+    <symbol id="i-stop" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></symbol>
+    <symbol id="i-record" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0z"/><circle cx="12" cy="10" r="2"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="m9 15 6-6M7 17l-2 2a4 4 0 0 1-6-6l6-6a4 4 0 0 1 6 0M17 7l2-2a4 4 0 0 1 6 6l-6 6a4 4 0 0 1-6 0" transform="translate(2 0) scale(.85 1)"/></symbol>
+  </defs></svg>
+
+  <aside class="rail" aria-label="Hauptnavigation">
+    <a class="brand-mark" href="#" aria-label="KrakenDF Lagebild"><svg class="icon"><use href="#i-radar"/></svg></a>
+    <div class="rail-divider"></div>
+    <button class="rail-btn active" data-view="monitor" title="Lagebild" aria-label="Lagebild" aria-current="page"><svg class="icon"><use href="#i-radar"/></svg><span>Lagebild</span></button>
+    <button class="rail-btn" data-view="analysis" title="Auswertung" aria-label="Auswertung"><svg class="icon"><use href="#i-chart"/></svg><span>Analyse</span></button>
+    <button class="rail-btn" data-open="sessions-dialog" title="Aufnahmen & Replay" aria-label="Aufnahmen & Replay"><svg class="icon"><use href="#i-folder"/></svg><span>Replay</span></button>
+    <button class="rail-btn" data-open="config-dialog" title="Einrichtung" aria-label="Einrichtung"><svg class="icon"><use href="#i-settings"/></svg><span>Setup</span></button>
+    <div class="rail-bottom">
+      <button class="rail-btn" id="theme-toggle" title="Tagmodus" aria-label="Tagmodus aktivieren"><svg class="icon"><use href="#i-sun"/></svg><span>Ansicht</span></button>
+      <button class="rail-btn" data-open="diagnostics-dialog" title="Status & Hinweise" aria-label="Status & Hinweise"><svg class="icon"><use href="#i-info"/></svg><span>Status</span></button>
+    </div>
+  </aside>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="wordmark">KRAKEN<span>DF</span><span class="version-tag">DEMO</span></div>
+      <div class="topbar-center"><span class="status-dot" id="connection-dot"></span><span id="connection-label">Verbindung wird aufgebaut</span></div>
+      <div class="topbar-end"><span class="local-label">LOKALE STATION</span><time id="utc-clock">--:--:-- UTC</time></div>
+    </header>
+
+    <main>
+      <section class="page-heading">
+        <div><div class="eyebrow">RADIO DIRECTION FINDING <span>/</span> 433 MHz</div><h1 id="page-title">Peilübersicht<span class="title-dot">.</span></h1><p id="page-subtitle">Signale verfolgen. Peilung vergleichen. Präzision verstehen.</p></div>
+        <div class="heading-actions">
+          <button class="button button-quiet" data-open="source-dialog" id="source-button"><span class="status-dot amber"></span><span id="source-label">Datenquelle</span><span class="chevron">⌄</span></button>
+          <button class="button" data-open="sessions-dialog"><svg class="icon"><use href="#i-folder"/></svg><span>Aufnahmen</span></button>
+          <button class="button button-primary" id="record-button"><svg class="icon"><use href="#i-record"/></svg><span>Aufnehmen</span></button>
+        </div>
+      </section>
+
+      <div class="mode-notice" id="mode-notice"><svg class="icon"><use href="#i-info"/></svg><span>Warte auf die lokale Verarbeitung …</span><button class="text-button" data-open="source-dialog">Quelle wählen <span>↗</span></button></div>
+
+      <section class="health-strip" aria-label="Stationsstatus">
+        <button class="health-item" data-open="config-dialog"><span class="health-icon"><svg class="icon"><use href="#i-pin"/></svg></span><span><small>STATION / GPS</small><strong id="gps-status">Warte auf Position</strong></span><span class="health-extra" id="gps-extra">—</span></button>
+        <button class="health-item" data-open="diagnostics-dialog"><span class="health-icon"><svg class="icon"><use href="#i-link"/></svg></span><span><small>EMPFANGSKETTE</small><strong id="coherence-status">Keine Daten</strong></span><span class="health-extra" id="frame-count">0 Frames</span></button>
+        <button class="health-item" data-open="config-dialog"><span class="health-icon"><svg class="icon"><use href="#i-radar"/></svg></span><span><small>ANTENNENPROFIL</small><strong id="array-status">—</strong></span><span class="health-extra" id="heading-status">Heading —</span></button>
+      </section>
+
+      <section class="monitor-grid" id="monitor-view">
+        <article class="panel bearing-panel">
+          <div class="panel-heading"><div><span class="panel-kicker">01 / LAGEBILD</span><h2 id="bearing-title">Azimutübersicht</h2></div><div class="panel-heading-right"><div class="view-tabs" role="tablist" aria-label="Lagebildansicht"><button class="active" id="azimuth-tab" role="tab" aria-selected="true" aria-controls="azimuth-content" data-bearing-view="azimuth">Azimut</button><button id="map-tab" role="tab" aria-selected="false" aria-controls="map-content" data-bearing-view="map">Karte</button></div><span class="pill" id="emitter-count">0 Emitter</span><button class="icon-button" data-open="heading-dialog" title="Heading auf bekannten Emitter ausrichten" aria-label="Heading ausrichten"><svg class="icon"><use href="#i-crosshair"/></svg></button></div></div>
+          <div id="azimuth-content" class="azimuth-content" role="tabpanel" aria-labelledby="azimuth-tab">
+          <div class="bearing-stage"><canvas id="bearing-canvas" role="img" aria-label="Azimutdiagramm: gemessene Richtung und GPS-Sollrichtung der Emitter"></canvas><div class="bearing-empty" id="bearing-empty"><svg class="icon"><use href="#i-radar"/></svg><strong>Bereit für den ersten Emitter</strong><span>Empfang starten oder eine Aufnahme wiedergeben.</span></div><div class="plot-corner top-left"><span class="plot-live-dot"></span><span id="plot-mode">STANDBY</span></div><div class="plot-corner top-right">NORDREFERENZ / WGS84</div><div class="plot-corner bottom-left"><span>360°</span><small>HORIZONTALER AZIMUT</small></div><div class="plot-corner bottom-right"><span id="plot-heading">000,0°</span><small>ARRAY-HEADING</small></div></div>
+          <div class="plot-footer"><div class="legend"><span><i class="legend-line"></i>Peilung</span><span><i class="legend-line dashed"></i>GPS-Sollrichtung</span></div><button class="text-button" data-open="heading-dialog"><svg class="icon"><use href="#i-crosshair"/></svg>Heading ausrichten</button></div></div>
+          <div id="map-content" class="map-content" role="tabpanel" aria-labelledby="map-tab" hidden><div id="tactical-map" aria-label="Karte mit Stationsposition, Heading und Emitterpositionen"></div></div>
+        </article>
+
+        <div class="right-column">
+          <article class="panel tracks-panel"><div class="panel-heading"><div><span class="panel-kicker">02 / TRACKING</span><h2>Emitter</h2></div><span class="small-note" id="track-refresh">Rufzeichen aus Nutzlast</span></div><div class="track-table-head"><span>RUFZEICHEN / KANAL</span><span>PEILUNG</span><span>FEHLER</span></div><div id="track-list" class="track-list"><div class="empty-state compact">Noch keine zugeordneten Pakete.</div></div><div id="selected-track" class="selected-track"><div class="selected-track-placeholder">Emitter auswählen, um Empfang und Referenz zu prüfen.</div></div></article>
+          <article class="panel precision-panel"><div class="panel-heading"><div><span class="panel-kicker">03 / MESSQUALITÄT</span><h2>Peilfehler</h2></div><button class="text-button" data-view="analysis">Auswertung <span>↗</span></button></div><div class="precision-numbers"><div><span class="metric-label">GESAMT-RMS</span><strong class="big-metric" id="rms-raw">—<small>°</small></strong><span class="metric-description">Rohwerte</span></div><div class="corrected-metric"><span class="metric-label">KORRIGIERT</span><strong class="big-metric" id="rms-corrected">—<small>°</small></strong><span class="metric-description" id="correction-status">Keine Korrektur aktiv</span></div></div><div class="precision-footer"><span><b id="measurement-count">0</b> gültige Messungen</span><span>Bias <b id="bias-value">—</b></span></div></article>
+        </div>
+
+        <article class="panel spectrum-panel"><div class="panel-heading"><div><span class="panel-kicker">04 / RF-MONITOR</span><h2>Live-Spektrum <span class="muted-heading" id="spectrum-center">— MHz</span></h2></div><div class="spectrum-controls"><span class="small-note" id="spectrum-settings">—</span><label class="toggle-label"><input type="checkbox" id="waterfall-toggle"><span class="toggle-track"></span>Wasserfall</label></div></div><div class="spectrum-stage"><canvas id="spectrum-canvas" role="img" aria-label="Empfangsspektrum mit Markierungen der konfigurierten RF-Kanäle"></canvas><span class="spectrum-unit">dBFS</span></div><div class="waterfall-stage" id="waterfall-stage" hidden><canvas id="waterfall-canvas" role="img" aria-label="Wasserfall des Empfangsspektrums"></canvas></div><div class="spectrum-footer"><div class="channel-legend" id="channel-legend">Keine RF-Kanäle konfiguriert</div><button class="text-button" data-open="config-dialog">RX-Einstellungen <svg class="icon"><use href="#i-settings"/></svg></button></div></article>
+
+        <article class="panel calibration-strip"><div class="calibration-intro"><span class="calibration-icon"><svg class="icon"><use href="#i-crosshair"/></svg></span><div><h2>Kalibrierung</h2><p id="calibration-status">Richtungen sammeln. Mit unabhängigem Lauf prüfen.</p></div></div><div class="coverage-wrap"><div class="coverage-label"><span>AZIMUTABDECKUNG</span><b id="coverage-count">0 / 24 Sektoren</b></div><div class="coverage-bars" id="coverage-bars" aria-label="Belegung der 24 Azimutsektoren"></div><div class="coverage-axis"><span>0° / N</span><span>90° / O</span><span>180° / S</span><span>270° / W</span><span>360°</span></div></div><button class="button" data-open="calibration-dialog">Kalibrierung öffnen <svg class="icon"><use href="#i-arrow"/></svg></button></article>
+      </section>
+
+      <section class="analysis-view" id="analysis-view" hidden>
+        <div class="analysis-toolbar"><p>Winkelabweichungen gegen die GPS-Sollrichtung. Sektoren ohne Daten bleiben leer.</p><div><button class="button button-quiet" id="reset-measurements"><svg class="icon"><use href="#i-trash"/></svg>Messwerte zurücksetzen</button><a class="button button-primary" href="/api/export.xlsx" download><svg class="icon"><use href="#i-download"/></svg>Excel exportieren</a></div></div>
+        <div class="analysis-metrics"><article class="panel stat-tile"><span class="metric-label">GESAMT-RMS · ROH</span><strong id="analysis-rms-raw">—</strong><span>Alle akzeptierten Pakete</span></article><article class="panel stat-tile"><span class="metric-label">GESAMT-RMS · KORRIGIERT</span><strong id="analysis-rms-corrected">—</strong><span id="analysis-model">Keine Korrektur aktiv</span></article><article class="panel stat-tile"><span class="metric-label">GÜLTIGE MESSUNGEN</span><strong id="analysis-count">0</strong><span id="analysis-coverage">0 von 24 Azimutsektoren belegt</span></article><article class="panel stat-tile"><span class="metric-label">ZIRKULÄRER BIAS · ROH</span><strong id="analysis-bias">—</strong><span>Vorzeichenbehaftete Abweichung</span></article></div>
+        <article class="panel error-chart-panel"><div class="panel-heading"><div><span class="panel-kicker">VERGLEICH / REFERENZAZIMUT</span><h2>RMS über Azimut</h2></div><div class="legend"><span><i class="legend-square raw"></i>Rohwerte</span><span><i class="legend-square corrected"></i>Korrigiert</span></div></div><div class="error-chart-stage"><canvas id="error-canvas" role="img" aria-label="RMS-Fehler pro Azimutsektor, vor und nach Korrektur"></canvas></div><div class="chart-note"><svg class="icon"><use href="#i-info"/></svg>GPS-Unsicherheit und Positionsalter beeinflussen den Referenzfehler. Eine hohe Paketanzahl ersetzt keine vollständige Richtungsabdeckung.</div></article>
+        <article class="panel"><div class="panel-heading"><div><span class="panel-kicker">MESSWERTE</span><h2>Azimutsegmente</h2></div><span class="small-note">15° je Sektor</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Referenzazimut</th><th>Pakete</th><th>RMS roh</th><th>RMS korrigiert</th><th>Abdeckung</th></tr></thead><tbody id="bin-table"></tbody></table></div></article>
+      </section>
+
+      <footer class="app-footer"><div><span class="status-dot" id="footer-dot"></span><span id="footer-message">Lokale Verarbeitung wird verbunden …</span></div><div><span id="recording-status">Keine Aufnahme</span><span class="footer-separator">/</span><span id="footer-version">KRAKENDF · v0.1</span></div></footer>
+    </main>
+  </div>
+
+  <dialog id="source-dialog" class="modal small-modal">
+    <form id="source-form">
+      <div class="modal-heading"><div><span class="eyebrow">DATENQUELLE</span><h2>Empfang starten</h2></div><button type="button" class="icon-button" data-close aria-label="Schließen"><svg class="icon"><use href="#i-close"/></svg></button></div>
+      <p class="modal-description">KrakenSDR und GPS-Maus anschließen. Der lokale Empfang wird automatisch vorbereitet und kalibriert. Gespeicherte Aufnahmen finden Sie unter Replay.</p>
+      <div class="source-options">
+        <label class="source-choice"><input type="radio" name="source_mode" value="live" checked><span><strong>Live-Empfang</strong><small>Die Positionen und Peilungen der angeschlossenen Station verfolgen.</small></span><span class="source-choice-tag">LIVE</span></label>
+        <label class="source-choice"><input type="radio" name="source_mode" value="simulation"><span><strong>Simulation</strong><small>Synthetische Fünfkanaldaten zum Einrichten. Kein Hardwareempfang.</small></span><span class="source-choice-tag">DEMO</span></label>
+        <label class="source-choice"><input type="radio" name="source_mode" value="idle"><span><strong>Standby</strong><small>Empfang beenden. Bisherige Messwerte bleiben erhalten.</small></span></label>
+      </div>
+      <div class="receiver-target-fields" id="receiver-target-fields">
+        <label class="full-label">Empfänger<select name="daq_mode" id="daq-mode"><option value="managed" selected>KrakenSDR am USB-Anschluss</option><option value="external">Externer Empfänger</option></select></label>
+        <p class="receiver-target-hint" id="receiver-target-hint">Start und Kalibrierung erfolgen automatisch auf diesem Rechner.</p>
+        <div class="form-grid two source-host-fields" id="external-receiver-fields" hidden><label>Empfänger-Adresse<input name="host" value="127.0.0.1" placeholder="z. B. 192.168.1.20" autocomplete="off" disabled></label><label>TCP-Port<input name="port" type="number" value="5000" min="1" max="65535" required disabled></label></div>
+      </div>
+      <div class="receiver-runtime-status" id="receiver-runtime-status" role="status" hidden><span class="status-dot"></span><span></span></div>
+      <div class="modal-actions"><button type="button" class="button button-quiet" data-close>Abbrechen</button><button type="submit" class="button button-primary">Quelle aktivieren <svg class="icon"><use href="#i-arrow"/></svg></button></div>
+    </form>
+  </dialog>
+
+  <dialog id="config-dialog" class="modal config-modal"><form id="config-form"><div class="modal-heading"><div><span class="eyebrow">STATIONSEINRICHTUNG</span><h2>Empfang & Antennen</h2></div><button type="button" class="icon-button" data-close aria-label="Schließen"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="config-body"><section class="form-section"><h3><span>01</span>Empfang</h3><div class="form-grid four"><label>RF-Mitte <em>MHz</em><input name="center_frequency_mhz" type="number" step="0.000001" min="24" max="1766" required></label><label>Abtastrate <em>MS/s</em><input name="sample_rate_msps" type="number" step="0.001" min="0.25" max="2.4" required></label><label>Gain <em>dB</em><input name="gain_db" type="number" list="gain-values" step="0.1" min="0" max="49.6" required></label><label>FFT-Länge<select name="fft_size"><option>256</option><option>512</option><option>1024</option><option>2048</option><option>4096</option><option>8192</option><option>16384</option><option>32768</option><option>65536</option></select></label></div><datalist id="gain-values"></datalist><p class="field-hint">Alle RF-Kanäle müssen gemeinsam ins nutzbare Empfangsfenster passen. Die FFT-Länge steuert die Spektrumsanzeige.</p></section><section class="form-section"><div class="form-section-heading"><h3><span>02</span>RF-Kanäle</h3><button type="button" class="text-button" id="add-channel"><svg class="icon"><use href="#i-plus"/></svg>Kanal hinzufügen</button></div><div id="channel-fields"></div></section><section class="form-section"><h3><span>03</span>Antennen & Ausrichtung</h3><div class="array-config-layout"><div class="form-grid"><label>Antennenprofil<select name="array_id" id="array-select"></select></label><label>Geografisches Heading <em>°</em><input name="heading_deg" type="number" step="0.1" min="0" max="359.999" required></label><p class="field-hint">x rechts · y vorne · Azimut im Uhrzeigersinn. Die Kanalnummern müssen mit den angeschlossenen Kabeln übereinstimmen.</p></div><div class="array-preview"><canvas id="array-canvas" role="img" aria-label="Antennenanordnung mit Hardware-Kanalnummern"></canvas><span id="array-dimensions">—</span></div></div></section><section class="form-section"><h3><span>04</span>Stationsposition & GPS</h3><div class="form-grid two station-mode-fields"><label>Positionsquelle<select name="station_mode"><option value="gps">GPS-Maus · primär</option><option value="manual">Manuelle Stationsposition</option></select></label><label>TX-Konfiguration / Notiz<input name="tx_notes" maxlength="1000" placeholder="Sendeleistung, Antenne, Firmware …"></label></div><div class="form-grid four"><label>Breitengrad <em>°</em><input name="station_latitude" type="number" step="0.000001" min="-89.9" max="89.9" required></label><label>Längengrad <em>°</em><input name="station_longitude" type="number" step="0.000001" min="-180" max="180" required></label><label>GPS-Port <em>optional</em><input name="gps_port" list="gps-port-options" placeholder="Automatisch erkennen" autocomplete="off"></label><label>GPS-Baudrate<select name="gps_baud"><option>4800</option><option>9600</option><option>19200</option><option>38400</option><option>57600</option><option>115200</option></select></label></div><datalist id="gps-port-options"></datalist><div class="gps-discovery-row"><button type="button" class="button button-quiet" id="discover-gps-ports"><svg class="icon"><use href="#i-pin"/></svg>GPS-Ports suchen</button><span id="gps-discovery-status" role="status">Ein eindeutig erkannter GPS-Empfänger wird automatisch verwendet.</span></div><p class="field-hint">Die feste Stationsposition ist die Referenz für den Peilfehler. Eine GPS-Maus liefert im Stillstand kein verlässliches Heading.</p></section></div><div class="modal-actions"><button type="button" class="button button-quiet" data-close>Abbrechen</button><button type="submit" class="button button-primary"><svg class="icon"><use href="#i-check"/></svg>Einstellungen übernehmen</button></div></form></dialog>
+
+  <dialog id="heading-dialog" class="modal small-modal"><form id="heading-form"><div class="modal-heading"><div><span class="eyebrow">NORDREFERENZ</span><h2>Heading ausrichten</h2></div><button type="button" class="icon-button" data-close aria-label="Schließen"><svg class="icon"><use href="#i-close"/></svg></button></div><p class="modal-description">Wählen Sie einen bekannten Emitter mit gültiger Position. Seine GPS-Sollrichtung wird mit der gemessenen Richtung abgeglichen.</p><label class="full-label">Referenzemitter<select name="callsign" id="heading-emitter" required></select></label><div class="info-box"><svg class="icon"><use href="#i-info"/></svg><p>Array und Referenzemitter während des Abgleichs ruhig halten. Eine geänderte Ausrichtung beginnt einen neuen Messprofilstand.</p></div><div class="modal-actions"><button type="button" class="button button-quiet" data-close>Abbrechen</button><button type="submit" class="button button-primary"><svg class="icon"><use href="#i-crosshair"/></svg>Heading setzen</button></div></form></dialog>
+
+  <dialog id="record-dialog" class="modal small-modal"><form id="record-form"><div class="modal-heading"><div><span class="eyebrow">RECORD / IQ & MESSWERTE</span><h2>Aufnahme starten</h2></div><button type="button" class="icon-button" data-close aria-label="Schließen"><svg class="icon"><use href="#i-close"/></svg></button></div><p class="modal-description">Paketbezogene Fünfkanal-IQ-Daten, Peilungen, Referenzpositionen und das aktuelle Messprofil werden gemeinsam gespeichert.</p><div class="form-grid"><label>Name der Aufnahme<input name="name" maxlength="120" placeholder="z. B. Kreis groß · Runde 01" required></label><label>Verwendung<select name="kind"><option value="measurement">Messung / Demo</option><option value="calibration">Kalibrierung · Training</option><option value="validation">Kalibrierung · unabhängiger Prüflauf</option></select></label></div><div class="info-box" id="record-mode-info"><svg class="icon"><use href="#i-info"/></svg><p>Die aktuelle Datenquelle wird mit der Aufnahme dokumentiert.</p></div><div class="modal-actions"><button type="button" class="button button-quiet" data-close>Abbrechen</button><button type="submit" class="button button-primary"><svg class="icon"><use href="#i-record"/></svg>Aufnahme starten</button></div></form></dialog>
+
+  <dialog id="sessions-dialog" class="modal sessions-modal"><div class="modal-heading"><div><span class="eyebrow">RECORD / REPLAY</span><h2>Aufnahmen</h2></div><button type="button" class="icon-button" data-close aria-label="Schließen"><svg class="icon"><use href="#i-close"/></svg></button></div><div class="sessions-topline"><p class="modal-description">Gespeicherte Empfangsfenster und Messprofile erneut auswerten.</p><label class="inline-label">Replay<select id="replay-speed"><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option></select></label></div><div id="replay-status" class="replay-status" hidden></div><div id="session-list" class="session-list"><div class="empty-state">Noch keine Aufnahmen vorhanden.</div></div><div class="modal-actions"><button class="button button-quiet" data-close>Schließen</button><button class="button button-primary" id="new-recording"><svg class="icon"><use href="#i-record"/></svg>Neue Aufnahme</button></div></dialog>
+
+  <dialog id="calibration-dialog" class="modal calibration-modal"><div class="modal-heading"><div><span class="eyebrow">DF-KORREKTUR</span><h2>Kalibrierung</h2></div><button type="button" class="icon-button" data-close aria-label="Schließen"><svg class="icon"><use href="#i-close"/></svg></button></div><p class="modal-description">Trainingsdaten über möglichst alle Richtungen sammeln und die Korrektur an einer separaten Runde prüfen. Kraken-Kohärenz und Heading bleiben eigene Einstellungen.</p><div class="calibration-step-grid"><div class="calibration-step"><span class="step-number">1</span><h3>Richtungen erfassen</h3><p>Ein oder mehrere Emitter bewegen sich um das feststehende Array.</p><button class="button" id="record-calibration"><svg class="icon"><use href="#i-record"/></svg>Record Calibration Data</button></div><div class="calibration-step"><span class="step-number">2</span><h3>Separaten Lauf prüfen</h3><p>Eine weitere Runde liefert unabhängige Daten zur Validierung.</p><button class="button" id="record-validation"><svg class="icon"><use href="#i-plus"/></svg>Prüflauf aufnehmen</button></div></div><form id="calibration-form" class="calibration-fit-form"><div class="form-grid two"><label>Trainingsaufnahme<select name="training_session_id" id="training-session" required></select></label><label>Unabhängiger Prüflauf<select name="validation_session_id" id="validation-session" required></select></label></div><button type="submit" class="button button-primary"><svg class="icon"><use href="#i-chart"/></svg>Korrektur berechnen & prüfen</button></form><div id="calibration-models" class="calibration-models"><div class="empty-state compact">Noch keine Korrekturmodelle berechnet.</div></div><div class="modal-actions"><button class="button button-quiet" data-close>Schließen</button><button class="button" id="disable-calibration">Korrektur deaktivieren</button></div></dialog>
+
+  <dialog id="diagnostics-dialog" class="modal diagnostics-modal"><div class="modal-heading"><div><span class="eyebrow">SYSTEMSTATUS</span><h2>Verarbeitung & Hinweise</h2></div><button type="button" class="icon-button" data-close aria-label="Schließen"><svg class="icon"><use href="#i-close"/></svg></button></div><div id="diagnostic-summary" class="diagnostic-summary"></div><section class="daq-diagnostics" id="daq-diagnostics" hidden><h3 class="section-label">Lokaler Empfang</h3><div id="daq-diagnostic-status" class="daq-diagnostic-status"></div><details><summary>Technische Details</summary><pre id="daq-diagnostic-details"></pre></details></section><h3 class="section-label">Decoder</h3><div id="decoder-status" class="decoder-status"></div><h3 class="section-label">Ereignisse</h3><div id="event-list" class="event-list"><div class="empty-state compact">Noch keine Ereignisse.</div></div><div class="modal-actions"><button class="button" data-close>Schließen</button></div></dialog>
+
+  <div id="toasts" class="toast-stack" role="status" aria-live="polite"></div>
+  <div class="offline-banner" id="offline-banner" hidden><svg class="icon"><use href="#i-info"/></svg><span>Verbindung zum Backend unterbrochen. Die Anzeige zeigt den letzten Stand.</span><button id="reconnect-button">Erneut verbinden</button></div>
+</body>
+</html>
