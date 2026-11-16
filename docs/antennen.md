@@ -1,6 +1,6 @@
 # Antennenlayouts und Kalibrierung für die 433-MHz-DF-Demo
 
-Stand: 2026-11-12. Entwurf; keine an Hardware bestätigte Genauigkeitszusage.
+Stand: 2026-11-16. Fünf auswählbare Profile; keine an Hardware bestätigte Genauigkeitszusage.
 
 ## Konventionen
 
@@ -9,7 +9,7 @@ Stand: 2026-11-12. Entwurf; keine an Hardware bestätigte Genauigkeitszusage.
 - Kanalnummern **CH0 bis CH4** sind physische Kraken-Eingänge und Bestandteil jedes gespeicherten Profils. Beschriftete Kabel und wiederholbare Positionsmarkierungen sind wichtig. Eine Änderung der Kanalzuordnung ist eine Änderung der Geometrie.
 - Antennenkoordinaten beziehen sich auf die Mitte der jeweiligen senkrechten Antenne, alle auf gleicher Höhe. Identische, senkrechte Strahler mit vergleichbarer Umgebung verwenden.
 
-## Drei auswählbare Vorschläge
+## Ursprüngliche Vergleichsprofile
 
 ### 1. Kreis kompakt — Durchmesser 300 mm
 
@@ -53,9 +53,41 @@ CH0 vorne links, CH1 vorne rechts, CH2 hinten rechts, CH3 hinten links, CH4 in d
 
 Der Algorithmus benötigt hierfür eine explizite Koordinatenliste. Dieses Layout lässt sich nicht korrekt als Kreisarray mit anderem Durchmesser behandeln. Alle drei Vorschläge sind für eine horizontale 360°-Azimutschätzung geeignet, sofern das vollständige Kanalmodell verwendet wird. Ein planares Array kann die Spiegelung der Elevation oberhalb/unterhalb seiner Ebene prinzipiell nicht auflösen; für die geplante horizontale Demo wird eine entsprechende Quellengeometrie angenommen.
 
+## Benannte kompakte Aufbauten
+
+### Pegasus 95 — Kreuz mit Mittelantenne
+
+Profil-ID `pegasus_95`. Vier äußere Antennen liegen jeweils **95 mm von CH4 in der Mitte** entfernt. **CH0 zeigt nach vorne**, danach CH1 rechts, CH2 hinten und CH3 links. In der vom Nutzer bereitgestellten Halterzeichnung ist **links die Vorderseite**; die folgende Tabelle ist bereits in das lokale Array-System (x rechts, y vorne) gedreht.
+
+| Kanal | x [mm] | y [mm] |
+|---|---:|---:|
+| CH0 | 0,000 | 95,000 |
+| CH1 | 95,000 | 0,000 |
+| CH2 | 0,000 | -95,000 |
+| CH3 | -95,000 | 0,000 |
+| CH4 | 0,000 | 0,000 |
+
+Gegenüberliegende äußere Antennen stehen 190 mm auseinander; der Abstand benachbarter äußerer Antennen beträgt 134,35 mm. Die äußeren Antennen bilden ein um 45° gedrehtes Quadrat mit **134,35 mm Seitenlänge**, kein Quadrat mit 190 mm Seitenlänge. Die größte Baseline und die Boundingbox der Antennenmitten sind 190 mm beziehungsweise 190 × 190 mm. Das geografische Heading beschreibt die Richtung **von CH4 zu CH0**.
+
+### Pentagon 105 — Radius 105 mm
+
+Profil-ID `pentagon_105`. Fünf Antennen auf Radius **105 mm**, entsprechend einem Kreisdurchmesser von **210 mm**. CH0 liegt vorne; CH1 bis CH4 folgen im Uhrzeigersinn in Schritten von 72°. Es gibt keine Mittelantenne.
+
+| Kanal | x [mm] | y [mm] |
+|---|---:|---:|
+| CH0 | 0,000 | 105,000 |
+| CH1 | 99,861 | 32,447 |
+| CH2 | 61,717 | -84,947 |
+| CH3 | -61,717 | -84,947 |
+| CH4 | -99,861 | 32,447 |
+
+Der Nachbarabstand beträgt 123,43 mm, die größte Baseline 199,72 mm. Die Boundingbox der Antennenmitten beträgt 199,72 × 189,95 mm. Das geografische Heading beschreibt die Richtung von der geometrischen Arraymitte zu CH0. Der Profilname bezieht sich auf den **Radius**, nicht auf den Durchmesser oder Nachbarabstand.
+
+Beide kompakten Aufbauten verwenden dieselbe explizite Fünfkanal-Geometrieberechnung wie die ursprünglichen Profile. Wegen der kleinen Abstände können Antennenkopplung und Montageeinflüsse stärker ins Gewicht fallen. Das passende Profil im Setup auswählen; ein Wechsel ersetzt keinen Heading-Abgleich und keine unabhängige Prüfung einer Winkelkorrektur. Die bisherigen Profile bleiben auswählbar; die Standardauswahl wird durch das Hinzufügen der neuen Profile nicht geändert.
+
 ## Einfacher numerischer Plausibilitätscheck
 
-Mit einem idealen isotropen Fernfeldmodell bei 433 MHz wurde die normierte komplexe Steuervektor-Korrelation für 720 Azimute (0,5°-Raster) berechnet; eine beliebige gemeinsame Signalphase ist dabei berücksichtigt. Für Richtungen mit mindestens 30° Abstand ergab sich:
+Für die drei ursprünglichen Vergleichsprofile wurde mit einem idealen isotropen Fernfeldmodell bei 433 MHz die normierte komplexe Steuervektor-Korrelation für 720 Azimute (0,5°-Raster) berechnet; eine beliebige gemeinsame Signalphase ist dabei berücksichtigt. Für Richtungen mit mindestens 30° Abstand ergab sich:
 
 | Layout | Höchste Korrelation bei >=30° Richtungsabstand | Höchstes sekundäres lokales Maximum |
 |---|---:|---:|

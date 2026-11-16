@@ -1,12 +1,15 @@
 """Common phase, frame-boundary and gap behavior of the real IQ pipeline."""
 import unittest
+from unittest.mock import patch
 
 import numpy as np
+from scipy import signal
 
 from krakendf.config import AppConfig, ChannelConfig, positions_for
 from krakendf.dsp import estimate_doa, steering_vector, wrap180
 from krakendf.hardware import IQFrame
 from krakendf.pipeline import BurstCapture, Channelizer, LivePipeline
+import krakendf.pipeline as pipeline_module
 
 
 def channel(modulation='pocsag', frequency=433800000, bandwidth=25000):
@@ -15,6 +18,54 @@ def channel(modulation='pocsag', frequency=433800000, bandwidth=25000):
 
 
 class ChannelizationTests(unittest.TestCase):
+    def test_accelerated_and_fallback_match_causal_reference_at_full_rate(self):
+        """Optimization must preserve the actual filter and absolute sample grid."""
+        rng = np.random.default_rng(824)
+        rate, center, size, origin = 2_400_000, 434_000_000, 65521, 1003
+        blocks = [17, 1024, 481, 8192, 317, 22222, 23268]
+        for bandwidth, offset in [(10000, -200000), (25000, -200000), (150000, 200000)]:
+            samples = np.arange(origin, origin + size)
+            tone = np.exp(2j * np.pi * (offset + 2100) / rate * samples)
+            spatial = np.exp(1j * np.arange(5) * .48)
+            iq = (spatial[:, None] * tone[None, :]
+                  + .01 * (rng.standard_normal((5, size)) + 1j * rng.standard_normal((5, size))))
+            iq = iq.astype(np.complex64)
+            config = channel(frequency=center + offset, bandwidth=bandwidth)
+            factor = int(rate // (2 * bandwidth))
+            reference = signal.sosfilt(signal.butter(8, bandwidth * .48, fs=rate, output='sos'),
+                                       iq * np.exp(-2j * np.pi * offset / rate * samples), axis=1)
+            reference = reference[:, (-origin) % factor::factor]
+            for accelerated in [False, True]:
+                with self.subTest(bandwidth=bandwidth, accelerated=accelerated):
+                    instance = Channelizer(config, rate, center, use_acceleration=accelerated)
+                    output, cursor = [], 0
+                    for count in blocks:
+                        if cursor >= size:
+                            break
+                        stop = min(size, cursor + count)
+                        part, mapped = instance.process(iq[:, cursor:stop], origin + cursor)
+                        if part.shape[1]:
+                            self.assertEqual(mapped % factor, 0)
+                        output.append(part)
+                        cursor = stop
+                    if cursor < size:
+                        output.append(instance.process(iq[:, cursor:], origin + cursor)[0])
+                    actual = np.concatenate(output, axis=1)
+                    np.testing.assert_allclose(actual, reference, rtol=2e-6, atol=2e-6)
+
+    def test_missing_optional_accelerator_keeps_scipy_reception_available(self):
+        with patch.object(pipeline_module, '_ACCELERATOR_CHECKED', True), \
+                patch.object(pipeline_module, '_ACCELERATOR', None), \
+                patch.object(pipeline_module, '_ACCELERATOR_ERROR', 'Numba unavailable'):
+            status = pipeline_module.prepare_acceleration()
+            instance = Channelizer(channel(), 250000, 433800000)
+            actual, mapped = instance.process(np.ones((5, 1000), np.complex64), 0)
+        self.assertEqual(status['backend'], 'scipy')
+        self.assertEqual(status['fallback_reason'], 'Numba unavailable')
+        self.assertEqual(mapped, 0)
+        self.assertEqual(actual.shape, (5, 200))
+        self.assertTrue(np.isfinite(actual).all())
+
     def test_arbitrary_frame_sizes_preserve_same_iq_and_doa_for_both_offsets(self):
         rng = np.random.default_rng(1953)
         positions = positions_for(AppConfig())

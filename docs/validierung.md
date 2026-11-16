@@ -1,4 +1,19 @@
-# Prüfung der Implementierung 0.2.1
+# Prüfung der Implementierung 0.2.2
+
+Stand: 16. November 2026. **166 automatisierte Tests bestanden** in 14,6 Sekunden.
+Die vollständige Suite umfasst zusätzlich zu den unten dokumentierten 0.2.1-Prüfungen:
+
+- Alle fünf Antennenprofile einschließlich Pegasus 95 und Pentagon 105; identische Quell-/Paketkoordinaten und MUSIC mit tatsächlicher Kanalzuordnung.
+- Neun SNR-Prüfungen mit bekannten Rauschleistungen bis −10 dB, fehlenden oder kontaminierten Referenzen, negativen Werten und ungültigen Daten; Übernahme in Trackingdaten, Aufnahme/Replay und numerischen Excel-Export.
+- Acht Diagnoseprüfungen: persistente Logs/Tracebacks, Download-ZIP, fehlende Logs, Rotation, Größenlimits, gesperrte Symlinks/FIFOs, ausgelassene Positionsdaten und HTTP-Fehlerprotokollierung.
+- Sieben Tests der getrennten RF-/Decoder-Worker: fortlaufende RF-Verarbeitung bei blockiertem Decoder, sichtbare Queueüberläufe, Abbruch ohne verspätete Messwerte, korrekte Aufnahme-/Laufzuordnung und Spektren sowie Aufräumen trotz Aufnahmeabschlussfehler.
+- Zwei zusätzliche DSP-Prüfungen: beschleunigter und SciPy-Pfad gegen den ursprünglichen kausalen Filter bei 2,4 MS/s, mehreren Bandbreiten und beliebigen Framegrenzen sowie nutzbarer Fallback ohne Numba. Der vollständige POCSAG-/LoRa-IQ-Empfangspfad mit Record/Replay bei 2,4 MS/s besteht weiterhin.
+
+JavaScript-, Shell- und Python-Syntaxprüfung bestanden. Die neuen Frontendfelder wurden außerdem mit einem kleinen Node-DOM-/Canvas-Harness auf fehlendes/0/negatives SNR und korrekte Profilbeschriftungen geprüft. Dies ersetzt keinen interaktiven Browserlauf. Der kontrollierte Softwarebenchmark erreicht auf diesem Entwicklungsrechner etwa 1,82-fachen Kanalverarbeitungsdurchsatz; Umfang und Grenzen siehe [Verarbeitung und SNR](verarbeitung-und-snr.md).
+
+Die physische Abnahme des Zielhosts bei 2,4 MS/s einschließlich Kraken, USB/WSL, realer BFT-Sendungen und VK-162 steht weiterhin aus. Die folgenden 0.2.1-Befunde werden als vorheriger Prüfstand aufbewahrt; der GitHub-Workflow prüft inzwischen auch PowerShell-Syntax auf Windows, jedoch keine reale Windows-/WSL-USB-Installation.
+
+## Vorheriger Prüfstand 0.2.1
 
 Stand: 16. November 2026. **140 automatisierte Tests bestanden** in der durch die Erstinstallation aufgelösten lokalen Pythonumgebung. Zusätzlich Python-Bytecodeprüfung und JavaScript-/Shellsyntaxprüfung bestanden. Die Tests mit TCP-/asyncio-Selbstkommunikation wurden außerhalb der restriktiven Socket-Sandbox ausgeführt; es wurden dabei keine physischen Empfänger oder externen Kartendienste verwendet. Der optionale Test mit der externen LoRa-Aufnahme wird übersprungen, wenn das Referenzrepository nicht vorhanden ist.
 

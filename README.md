@@ -1,10 +1,10 @@
-# KrakenDF Demo 0.2.1
+# KrakenDF Demo 0.2.2
 
 Lokales Webinterface für einen feststehenden KrakenSDR, eine ARCELI VK-162 GPS-Maus und DL7CR/BFT-Tracker auf LilyGO T-Deck 433. Dieselben POCSAG-/LoRa-Positionspakete werden decodiert und mit fünf kohärenten Antennen gepeilt. Emitter werden anhand des alphanumerischen Rufzeichens zugeordnet.
 
 **Der vollständige lokale Kraken-Stack ist eingebunden; Live ist der Standard.** Das Repository enthält die fest versionierten Heimdall-/Kraken-Treiberquellen, Buildanpassungen und Erststart-Skripte. Die Anwendung übernimmt deren Konfiguration und Prozessverwaltung. Physische Kraken-/433-MHz-/VK-162-Abnahme steht weiterhin aus.
 
-Zentrales Repository: **https://github.com/schildtaero/krakensdr**. Version 0.2.1 enthält insbesondere den korrigierten venv-Interpreterpfad für DAQ-Unterprozesse, den höhenbegrenzten Karten-Symboleditor und die nicht blockierende USB-Diagnose bei reiner Softwareinstallation.
+Zentrales Repository: **https://github.com/schildtaero/krakensdr**. Version 0.2.2 ergänzt die Profile **Pegasus 95** und **Pentagon 105**, Paket-SNR im Tracking und Excel, herunterladbare Diagnoseprotokolle und eine beschleunigte Empfangsverarbeitung. Die Korrekturen des venv-Interpreterpfads, Karten-Symboleditors und der USB-Installationsdiagnose aus 0.2.1 bleiben enthalten.
 
 ## Schnellstart
 
@@ -59,7 +59,9 @@ Standardmäßig bindet die Anwendung nur an localhost. Die zweite Variante dient
 - **Karten-Tab:** APP-6(B)-kompatible Symbolauswahl und SIDC je Rufzeichen, Empfängerposition, Heading und Peillinien. Einstellungen werden im Backend gespeichert.
 - **Offlinekarte:** standardmäßig offline. Raster-MBTiles mit PNG-/JPEG-Kacheln importieren oder nach explizitem Online-Umschalten betrachtete OSM-Kacheln lokal puffern. Kein Massenvorabruf. Ohne vorhandene Kacheln erscheint ein beschriftetes Koordinatenraster statt eines behaupteten Kartenhintergrunds.
 - **Spektrum/Wasserfall** und einstellbare RF-Mitte, Kanalbandbreite, Gain und FFT-Länge. Empfangspegel sind relative digitale Werte, keine kalibrierten dBm.
-- **Drei Antennenprofile:** Kreis Ø30 cm, Kreis Ø56 cm und Quadrat 32 cm plus Mitte; bemaßte Kanalzuordnung im Setup.
+- **Fünf Antennenprofile:** Pegasus 95 (Kreuz mit 95 mm Armlänge plus Mitte), Pentagon 105 (105 mm Radius), Kreis Ø30 cm, Kreis Ø56 cm und Quadrat 32 cm plus Mitte. Beide neuen Profile haben CH0 vorne und die übrigen äußeren Kanäle im Uhrzeigersinn. Vorhandene Konfigurationen werden nicht automatisch umgestellt; das passende Profil im Setup auswählen.
+- **Paket-SNR im Tracking:** geschätztes Signal-/Rauschleistungsverhältnis im jeweiligen RF-Kanal, auch für negative dB-Werte. Ohne geeignete Rauschreferenz steht „—“. Verfahren und Rohleistungen werden mit der Aufnahme gespeichert; die Simulation kennzeichnet ihren bekannten synthetischen Rauschpegel gesondert.
+- **Status und Fehlerprotokoll:** Download eines Diagnose-ZIPs mit Ereignis-/Fehlerlog, Tracebacks, begrenzten DAQ-Logauszügen und Verarbeitungskennzahlen. Im Statusdialog stehen RF-/Decoderwarteschlangen, Pipelinezeit im Verhältnis zur RF-Dauer und der verwendete DSP-Pfad.
 - **Heading:** manuell oder Abgleich an einem bekannten, frisch empfangenen BFT mit gültiger Position.
 - **Stationsposition:** manuell oder GPS. Der stationäre GPS-Standort wird über zehn gültige Fixmeldungen gemittelt und anschließend fixiert. GPS-Kurs über Grund wird nicht als Array-Heading benutzt.
 - **Record/Replay:** Messwerte, Profile, Qualitätsflags, Spektrum und kohärente Fünfkanal-IQ-Ausschnitte je zugeordnetem Paket; erneute MUSIC-Auswertung beim Replay.
@@ -97,6 +99,16 @@ USB-GPS-Unterstützung wird mit installiert. Eine eindeutig erkannte VK-162/u-bl
 
 NMEA-RMC und -GGA werden mit Prüfsumme ausgewertet. `GET /api/gps/ports` zeigt erkannte Ports, wenn pyserial installiert ist. Unter Linux benötigt der ausführende Benutzer Zugriff auf den seriellen Port. NMEA-Zeitstempel liefern keinen PPS-synchronisierten RF-Sampletakt; die Paket-/DF-Zuordnung erfolgt über IQ-Sampleindizes.
 
+## Verarbeitung bei 2,4 MS/s und Fehlerdiagnose
+
+Die lokale DAQ-Installation enthält bereits Numba. Version 0.2.2 fasst Frequenzmischung, den unveränderten kausalen SOS-Filter und die Dezimierung in einem kompilierten Durchlauf zusammen. Das spart große temporäre Fünfkanalarrays. Die Vorbereitung erfolgt vor dem Empfang; bei fehlender oder nicht verfügbarer Beschleunigung bleibt der SciPy-Pfad nutzbar und wird im Status kenntlich gemacht. Paketdecodierung und MUSIC laufen getrennt von der laufenden RF-Kanalverarbeitung in einer begrenzten Warteschlange.
+
+**Status → Verarbeitung** zeigt `Pipeline / RF-Zeit`: Anhaltende Werte über 100 % bedeuten, dass diese Stufe langsamer als der eintreffende RF-Strom ist. Es handelt sich nicht um die Gesamt-CPU-Auslastung. Eine übervolle RF- oder Decoderwarteschlange bleibt ein sichtbarer Fehler; die Software überspringt keine Datenlücken als vermeintlich kohärenten Empfang.
+
+Über **Status → Fehlerprotokoll herunterladen** oder `GET /api/diagnostics/download` ein ZIP für die Diagnose speichern. Es enthält maximal 4 MiB Logauszüge plus Metadaten; pro Datei wird höchstens das Ende mit 256 KiB übernommen. Das Anwendungslog rotiert unter `~/.krakendf/logs/application.log`, die DAQ-Protokolle liegen unter `~/.krakendf/logs/daq`. Aufnahmen und Kartendaten werden nicht eingepackt. Der Diagnose-Snapshot lässt Stations-/Emitterkoordinaten, Nutzlasten und TX-Notizen aus.
+
+Messaufbau, Benchmark, Bedeutung des SNR und praktische Grenzen: [Verarbeitung und SNR](docs/verarbeitung-und-snr.md). Eine Benchmarkreserve des Entwicklungsrechners ist keine Echtzeitzusage für jeden Windows-/WSL-/Linux-Host.
+
 ## Aufnahmen und Daten
 
 Standard-Datenverzeichnis ist `~/.krakendf`; `--data-dir` oder `KRAKENDF_DATA` überschreibt es. Darin liegen Konfiguration, Symbole, Korrekturmodelle, Sitzungsmanifeste, Ereignislogs, IQ-Clips und Kartencache. Kein automatisches Löschen alter Aufnahmen.
@@ -119,7 +131,7 @@ LoRa bleibt als **experimentell / Hardwareabnahme offen** gekennzeichnet. Die re
 
 ## Dokumentation
 
-- [PDF-Handbuch: Funktion und Bedienung](docs/KrakenDF-Funktion-und-Bedienung.pdf) — Peilprinzip, Antennenaufbau, Heading, Livebetrieb, Kalibrierung und RMS; [bearbeitbare Quelle](docs/df-handbuch.md), [PDF neu erstellen](docs/pdf-erstellen.md).
+- [PDF-Handbuch: Funktion und Bedienung](docs/KrakenDF-Funktion-und-Bedienung.pdf) — Grundlagen mit Softwarestand 0.2.1: Peilprinzip, Antennenaufbau, Heading, Livebetrieb, Kalibrierung und RMS; [bearbeitbare Quelle](docs/df-handbuch.md), [PDF neu erstellen](docs/pdf-erstellen.md). Ergänzungen ab 0.2.2 stehen unter Antennenprofilen sowie Verarbeitung und SNR.
 - [Spezifikation](docs/spezifikation.md) — ursprünglicher Entwurf; Umsetzung und Abweichungen siehe diese README.
 - [Antennenmaße und Kanalzuordnung](docs/antennen.md)
 - [Hardwareprotokoll](docs/hardware.md)
@@ -129,6 +141,7 @@ LoRa bleibt als **experimentell / Hardwareabnahme offen** gekennzeichnet. Die re
 - [Decoderstatus](docs/decoder-status.md)
 - [Offlinekarten und MBTiles](docs/maps.md)
 - [Prüfstand](docs/validierung.md)
+- [Verarbeitung, SNR und Diagnose](docs/verarbeitung-und-snr.md)
 - [Drittbibliotheken](THIRD_PARTY.md)
 
 OpenAPI-Dokumentation läuft lokal unter `/docs`. Externe SimpleSDR-/Kraken-Quellcodeverzeichnisse sind zur Laufzeit nicht erforderlich.
@@ -136,5 +149,7 @@ OpenAPI-Dokumentation läuft lokal unter `/docs`. Externe SimpleSDR-/Kraken-Quel
 ## Projekt aktualisieren
 
 Backend mit Strg+C beenden, im Git-Checkout `git pull --ff-only` ausführen und erneut `start.cmd` beziehungsweise `./start.sh` starten. Unter Windows aktualisiert eine neue Projektversion die WSL-Kopie über den vorhandenen Starthelfer. Keine WSL-Abschaltung nötig; USB-Durchreichung bleibt so erhalten. Nach Änderungen an der Oberfläche die Seite mit Strg+F5 neu laden.
+
+Alternativ die [aktuelle ZIP-Datei von GitHub](https://github.com/schildtaero/krakensdr/archive/refs/heads/main.zip) in einen neuen Ordner entpacken und dort `start.cmd` bzw. `./start.sh` ausführen. Die neue Paketversion 0.2.2 löst bei einer vorhandenen Windows-Installation die Aktualisierung der Linux-Projektkopie aus. Danach unter **Setup → Antennenprofil** ausdrücklich Pegasus 95 oder Pentagon 105 auswählen; gespeicherte alte Profile werden nicht still ersetzt.
 
 Eigene Änderungen vor dem Pull mit `git status` prüfen und sichern. Aufnahmen, `.runtime`, `.venv`, lokale Karten und Konfigurationen werden nicht über Git synchronisiert. Nach neuen abgeschlossenen Änderungen wird der geprüfte Quellcode in dieses Repository übertragen.

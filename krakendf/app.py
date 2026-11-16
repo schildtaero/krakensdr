@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 from . import __version__
 from .config import load_presets
 from .decoders import decoder_capabilities
+from .diagnostics import build_diagnostic_archive, diagnostic_snapshot
 from .dsp import statistics
 from .hardware import HardwareError, MANUAL_GAINS_DB
 from .maps import create_map_router
@@ -91,6 +92,14 @@ def create_app(data_dir: Path | str | None = None, initial_mode: str | None = No
     async def hardware_error(request, exc):
         return JSONResponse(status_code=503, content={"detail": str(exc)})
 
+    @app.exception_handler(Exception)
+    async def unexpected_error(request, exc):
+        context = f"HTTP {request.method} {request.url.path}: {type(exc).__name__}"
+        service.event(context, "error")
+        service.diagnostic_log.exception(context, exc)
+        return JSONResponse(status_code=500, content={
+            "detail": "Interner Fehler. Diagnosepaket unter Status herunterladen."})
+
     @app.get("/api/health")
     async def health():
         return {"status": "ok", "version": __version__, "source_mode": service.source["mode"]}
@@ -116,6 +125,14 @@ def create_app(data_dir: Path | str | None = None, initial_mode: str | None = No
     @app.get("/api/decoders")
     async def decoders():
         return decoder_capabilities()
+
+    @app.get("/api/diagnostics/download")
+    async def diagnostics_download():
+        snapshot = diagnostic_snapshot(service)
+        content = await asyncio.to_thread(build_diagnostic_archive, data_dir, snapshot, list(service.events))
+        return StreamingResponse(io.BytesIO(content), media_type="application/zip",
+                                 headers={"Content-Disposition": 'attachment; filename="KrakenDF-Diagnose.zip"',
+                                          "Cache-Control": "no-store"})
 
     @app.get("/api/hardware/gains")
     async def gains():

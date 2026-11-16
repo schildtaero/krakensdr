@@ -48,6 +48,8 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(row["quality"]["identity_source"] == "synthetic_fixture_metadata" for row in rows))
         self.assertTrue(all(not row["quality"]["decoder_verified"] for row in rows))
         self.assertTrue(all(row["confidence"] > .9 for row in rows))
+        self.assertTrue(all(row["snr_kind"] == "synthetic_known_noise" for row in rows))
+        self.assertTrue(all(15 < row["snr_db"] < 16 for row in rows))
         # The simulation's known injected bias is 4 sin(2a)+1.8 cos(a).
         self.assertTrue(all(abs(row["error_raw_deg"]) < 6.2 for row in rows))
         self.assertEqual(self.service.stats["count"], len(rows))
@@ -79,6 +81,8 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replayed["sample_start"], observation["sample_start"])
         self.assertEqual(replayed["sample_end"], observation["sample_end"])
         self.assertEqual(replayed["stream_epoch"], observation["stream_epoch"])
+        self.assertEqual(replayed["snr_db"], observation["snr_db"])
+        self.assertEqual(replayed["snr_kind"], "synthetic_known_noise")
         self.assertEqual(self.service.replay["progress"], 1)
         await self.service.stop_replay()
         self.assertIsNone(self.service.replay)
@@ -147,6 +151,8 @@ class ServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["iq_signal_end"], 211)
         self.assertEqual(row["iq_sample_rate_hz"], 600000)
         self.assertTrue(row["quality"]["decoder_verified"])
+        self.assertIsNone(row["snr_db"], "A short clip without quiet noise must not invent SNR from the DF score")
+        self.assertEqual(row["snr_status"], "no_noise_reference")
         self.assertLess(abs(row["error_raw_deg"]), .03)
 
     async def test_source_change_disables_calibration_from_old_data_type(self):

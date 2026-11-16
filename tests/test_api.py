@@ -84,7 +84,9 @@ class APIIntegrationTests(unittest.TestCase):
         self.assertEqual(self.client.get("/does-not-exist").status_code, 404)
         self.assertEqual(self.client.get("/static/does-not-exist.js").status_code, 404)
         self.assertEqual(self.client.get("/api/sessions/" + "0" * 32).status_code, 404)
-        self.assertEqual(len(self.ok(self.client.get("/api/arrays"))["presets"]), 3)
+        preset_ids = {preset["id"] for preset in self.ok(self.client.get("/api/arrays"))["presets"]}
+        self.assertTrue({"uca_300mm", "uca_560mm", "square_center_320mm",
+                         "pegasus_95", "pentagon_105"}.issubset(preset_ids))
         self.assertTrue(self.ok(self.client.get("/api/hardware/gains"))["gains_db"])
         self.assertIsInstance(self.ok(self.client.get("/api/decoders")), dict)
         self.assertEqual(self.ok(self.client.get("/api/gps/ports"))["model"], "ARCELI VK-162")

@@ -3,10 +3,73 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import math
+import threading
 import numpy as np
 from scipy import signal
 
 from .config import AppConfig
+
+
+def _mix_filter_decimate(iq, oscillator, rotation, sos, state, skip, factor):
+    """Same causal SOS recurrence as scipy, emitting only retained samples.
+
+    Compiled lazily when Numba is available. No fast-math or parallel loops:
+    all five antenna channels retain the same oscillator, filter and sample
+    grid; float64 coefficients/complex128 state match the reference path.
+    """
+    size = iq.shape[1]
+    count = max(0, (size - skip + factor - 1) // factor)
+    result = np.empty((iq.shape[0], count), dtype=np.complex64)
+    for antenna in range(iq.shape[0]):
+        next_output = skip
+        output_index = 0
+        for sample in range(size):
+            value = iq[antenna, sample] * oscillator[sample] * rotation
+            for section in range(sos.shape[0]):
+                filtered = sos[section, 0] * value + state[section, antenna, 0]
+                state[section, antenna, 0] = (sos[section, 1] * value
+                                             - sos[section, 4] * filtered
+                                             + state[section, antenna, 1])
+                state[section, antenna, 1] = sos[section, 2] * value - sos[section, 5] * filtered
+                value = filtered
+            if sample == next_output:
+                result[antenna, output_index] = value
+                output_index += 1
+                next_output += factor
+    return result
+
+
+_ACCELERATOR_LOCK = threading.Lock()
+_ACCELERATOR_CHECKED = False
+_ACCELERATOR = None
+_ACCELERATOR_ERROR = None
+
+
+def prepare_acceleration() -> dict:
+    """Warm optional acceleration before reception starts, with safe fallback.
+
+    Numba already belongs to the managed-DAQ extra. App-only installations
+    continue to work using SciPy. Disk caching is deliberately disabled so
+    read-only wheels/source folders cannot break reception or cache writes.
+    """
+    global _ACCELERATOR_CHECKED, _ACCELERATOR, _ACCELERATOR_ERROR
+    with _ACCELERATOR_LOCK:
+        if not _ACCELERATOR_CHECKED:
+            try:
+                from numba import njit
+                kernel = njit(cache=False, nogil=True)(_mix_filter_decimate)
+                # Compile the actual C-contiguous live-input signature using
+                # an empty window; no RF samples or filter state are consumed.
+                kernel(np.empty((5, 0), dtype=np.complex64),
+                       np.empty(0, dtype=np.complex128), 1 + 0j,
+                       np.ascontiguousarray(signal.butter(8, .1, output="sos")),
+                       np.zeros((4, 5, 2), dtype=np.complex128), 0, 1)
+                _ACCELERATOR = kernel
+            except Exception as exc:
+                _ACCELERATOR_ERROR = f"{type(exc).__name__}: {exc}"
+            _ACCELERATOR_CHECKED = True
+    return {"backend": "numba_fused" if _ACCELERATOR is not None else "scipy",
+            "fallback_reason": _ACCELERATOR_ERROR}
 
 
 @dataclass
@@ -46,7 +109,8 @@ class Channelizer:
     physical modulation boundary; decoder-relative boundaries refine it.
     """
 
-    def __init__(self, channel: dict, sample_rate_hz: float, center_hz: float):
+    def __init__(self, channel: dict, sample_rate_hz: float, center_hz: float,
+                 use_acceleration: bool = True):
         self.channel = channel
         self.input_rate = sample_rate_hz
         self.offset = channel["frequency_hz"] - center_hz
@@ -55,13 +119,28 @@ class Channelizer:
         self.sos = signal.butter(8, channel["bandwidth_hz"] * .48,
                                  fs=sample_rate_hz, output="sos")
         self.zi = np.zeros((self.sos.shape[0], 5, 2), dtype=np.complex128)
+        self._oscillator = np.empty(0, dtype=np.complex128)
+        self._kernel = None
+        if use_acceleration:
+            prepare_acceleration()
+            self._kernel = _ACCELERATOR
 
     def process(self, iq: np.ndarray, sample_start: int) -> tuple[np.ndarray, int]:
         phase_start = (self.offset * sample_start / self.input_rate) % 1
-        phase = phase_start + self.offset / self.input_rate * np.arange(iq.shape[1])
-        mixed = iq * np.exp(-2j * np.pi * phase)[None, :]
-        filtered, self.zi = signal.sosfilt(self.sos, mixed, axis=1, zi=self.zi)
+        if self._oscillator.shape[0] != iq.shape[1]:
+            phase = self.offset / self.input_rate * np.arange(iq.shape[1])
+            self._oscillator = np.exp(-2j * np.pi * phase)
+        rotation = complex(np.exp(-2j * np.pi * phase_start))
         skip = (-sample_start) % self.factor
+        if self._kernel is not None:
+            # Keep the warmed signature even for strided/read-only callers;
+            # normal live frames already satisfy these flags without a copy.
+            data = np.require(iq, dtype=np.complex64, requirements=["C", "W", "A"])
+            result = self._kernel(data, self._oscillator, rotation, self.sos,
+                                  self.zi, skip, self.factor)
+            return result, sample_start + skip
+        mixed = iq * (self._oscillator * rotation)[None, :]
+        filtered, self.zi = signal.sosfilt(self.sos, mixed, axis=1, zi=self.zi)
         return np.asarray(filtered[:, skip::self.factor], dtype=np.complex64), sample_start + skip
 
 
@@ -229,13 +308,21 @@ class BurstCapture:
 
 
 class LivePipeline:
-    def __init__(self, config: AppConfig):
+    def __init__(self, config: AppConfig, use_acceleration: bool = True):
         self.config = config
+        self.use_acceleration = use_acceleration
+        self.acceleration = {"backend": "unprepared", "fallback_reason": None}
         self.epoch = None
         self.captures: list[BurstCapture] = []
         self.next_sample = None
         self.input_rate = None
         self.input_center = None
+
+    def prepare(self) -> dict:
+        """Call before starting the receive pump to avoid a JIT startup gap."""
+        self.acceleration = (prepare_acceleration() if self.use_acceleration else
+                             {"backend": "scipy", "fallback_reason": "explicitly_disabled"})
+        return self.acceleration.copy()
 
     def process(self, frame) -> tuple[dict, list[Burst]]:
         if not frame.quality.get("valid", False):
@@ -247,8 +334,9 @@ class LivePipeline:
         changed = (frame.sample_rate_hz != self.input_rate or frame.center_frequency_hz != self.input_center)
         if self.epoch != frame.stream_epoch or discontinuous or changed or frame.quality.get("discontinuity", False):
             self.epoch = frame.stream_epoch
+            self.prepare()
             self.captures = [BurstCapture(Channelizer(c.model_dump(), frame.sample_rate_hz,
-                                                     frame.center_frequency_hz))
+                                                     frame.center_frequency_hz, self.use_acceleration))
                              for c in self.config.channels if c.enabled]
         self.next_sample = frame.sample_start + frame.iq.shape[1]
         self.input_rate = frame.sample_rate_hz

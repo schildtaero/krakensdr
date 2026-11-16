@@ -107,7 +107,8 @@ class StorageTests(unittest.TestCase):
 
     def test_excel_has_all_sheets_numeric_values_and_literal_untrusted_text(self):
         malicious = '=HYPERLINK("https://invalid.example","click")'
-        self.store.append(self.session["id"], self.observation(callsign=malicious, payload="+SUM(1,2)"))
+        self.store.append(self.session["id"], self.observation(callsign=malicious, payload="+SUM(1,2)",
+                                                            snr_db=-7.5, snr_kind="in_channel_power_ratio"))
         output = self.store.export_xlsx(self.session["id"], stats={"count": 1, "rms_raw_deg": 3.0,
             "rms_corrected_deg": 1.0, "bins": [{"start_deg": 0, "end_deg": 15, "count": 1,
                                                "rms_raw_deg": 3.0, "rms_corrected_deg": 1.0}]})
@@ -116,6 +117,8 @@ class StorageTests(unittest.TestCase):
         self.assertEqual(workbook["Messungen"]["B2"].value, malicious)
         self.assertEqual(workbook["Messungen"]["B2"].data_type, "s")
         self.assertEqual(workbook["Messungen"]["E2"].value, 359)
+        headers = [cell.value for cell in workbook["Messungen"][1]]
+        self.assertEqual(workbook["Messungen"].cell(2, headers.index("SNR geschätzt dB") + 1).value, -7.5)
         self.assertEqual(workbook["Azimut"]["D2"].value, 3.0)
         for sheet in workbook:
             for row in sheet:

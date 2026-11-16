@@ -16,6 +16,12 @@
   const utcTime = value => {const d = value ? new Date(value) : new Date(); return Number.isNaN(d.valueOf()) ? '—' : d.toLocaleTimeString('de-DE', {timeZone:'UTC',hour:'2-digit',minute:'2-digit',second:'2-digit'});};
   const dateLabel = value => {const d=new Date(value); return Number.isNaN(d.valueOf()) ? '—' : `${d.toLocaleDateString('de-DE',{day:'2-digit',month:'2-digit',year:'numeric',timeZone:'UTC'})} · ${utcTime(value)} UTC`;};
   const kindLabel = kind => ({measurement:'Messung',calibration:'Training',validation:'Prüflauf'}[kind] || kind || 'Messung');
+  const packetSNR = emitter => finite(emitter?.snr_db) && emitter.snr_db !== '' ? `${number(emitter.snr_db,1)} dB` : '—';
+  const packetSNRHint = emitter => emitter?.snr_kind === 'synthetic_known_noise'
+    ? 'Synthetisches Signal-/Rauschverhältnis aus dem bekannten Simulationsmodell; keine RF-Messung.'
+    : finite(emitter?.snr_db) && emitter.snr_db !== ''
+    ? 'Geschätztes Paket-SNR im Empfangskanal aus Paketleistung und Rauschreferenz. Unkalibriert; unabhängig vom DF-Score.'
+    : 'Für dieses Paket ist kein SNR-Schätzwert verfügbar, beispielsweise bei älteren Aufnahmen oder fehlender Rauschreferenz.';
   let state = null, presets = [], selectedCallsign = null, view = 'monitor', bearingView = 'azimuth';
   let socket = null, reconnectTimer = null, pollingTimer = null, requestInFlight = false;
   let lastStateAt = 0, hasConnected = false, mapReady = false;
@@ -200,13 +206,13 @@
       const selected=emitter.callsign===selectedCallsign, stale=Number(emitter.age_s||0)>45;
       const measured=state.calibration?.active_id && finite(emitter.corrected_deg)?emitter.corrected_deg:emitter.raw_deg;
       const error=state.calibration?.active_id?emitter.error_corrected_deg:emitter.error_raw_deg;
-      return `<button class="track-row${selected?' selected':''}${stale?' stale':''}" data-callsign="${esc(emitter.callsign)}" style="--track-color:${colorFor(emitter.callsign)}" aria-pressed="${selected}"><span class="track-identity"><i class="track-color"></i><span><strong class="track-name">${esc(emitter.callsign||'Unbekannt')}</strong><span class="track-frequency">${esc(String(emitter.modulation||'').toUpperCase())} · ${frequency(emitter.frequency_hz)} MHz</span></span></span><span class="track-angle">${number(measured,1)}<small>°</small></span><span class="track-error${Math.abs(Number(error||0))>5?' large':''}">${signed(error)}</span></button>`;
+      return `<button class="track-row${selected?' selected':''}${stale?' stale':''}" data-callsign="${esc(emitter.callsign)}" style="--track-color:${colorFor(emitter.callsign)}" aria-pressed="${selected}"><span class="track-identity"><i class="track-color"></i><span><strong class="track-name">${esc(emitter.callsign||'Unbekannt')}</strong><span class="track-frequency">${esc(String(emitter.modulation||'').toUpperCase())} · ${frequency(emitter.frequency_hz)} MHz</span><span class="track-snr" title="${esc(packetSNRHint(emitter))}">SNR <b>${packetSNR(emitter)}</b></span></span></span><span class="track-angle">${number(measured,1)}<small>°</small></span><span class="track-error${Math.abs(Number(error||0))>5?' large':''}">${signed(error)}</span></button>`;
     }).join(''):'<div class="empty-state compact">Noch keine zugeordneten Pakete.</div>';
     const emitter=emitters.find(item=>item.callsign===selectedCallsign);
     const selected=$('#selected-track');
     if(!emitter) {selected.innerHTML='<div class="selected-track-placeholder">Emitter auswählen, um Empfang und Referenz zu prüfen.</div>';return;}
     const age=Number(emitter.age_s||0);
-    selected.innerHTML=`<div class="track-detail-top"><strong>${esc(emitter.callsign)}</strong><span>${emitter.accepted===false?'Für Statistik ausgeschlossen':age>45?'Meldung veraltet':'Letzte Meldung'} · ${age<1?'< 1':number(age,0)} s</span></div><div class="track-detail-metrics"><div><small>GPS-SOLL</small><span>${angle(emitter.reference_deg)}</span></div><div><small>ROHPEILUNG</small><span>${angle(emitter.raw_deg)}</span></div><div><small>LEISTUNG</small><span>${number(emitter.power_db,1)} dB</span></div><div><small>DF-SCORE</small><span>${finite(emitter.confidence)?number(emitter.confidence,2):'—'}</span></div></div>`;
+    selected.innerHTML=`<div class="track-detail-top"><strong>${esc(emitter.callsign)}</strong><span>${emitter.accepted===false?'Für Statistik ausgeschlossen':age>45?'Meldung veraltet':'Letzte Meldung'} · ${age<1?'< 1':number(age,0)} s</span></div><div class="track-detail-metrics"><div><small>GPS-SOLL</small><span>${angle(emitter.reference_deg)}</span></div><div><small>ROHPEILUNG</small><span>${angle(emitter.raw_deg)}</span></div><div><small>LEISTUNG</small><span>${number(emitter.power_db,1)} dB</span></div><div title="${esc(packetSNRHint(emitter))}"><small>SNR · GESCHÄTZT</small><span>${packetSNR(emitter)}</span></div><div><small>DF-SCORE</small><span>${finite(emitter.confidence)?number(emitter.confidence,2):'—'}</span></div></div>`;
   }
 
   function renderMetrics() {
@@ -273,6 +279,13 @@
     if(!$('#diagnostics-dialog').open)return;
     const source=state?.source||{},gps=state?.gps||{};
     $('#diagnostic-summary').innerHTML=`<div class="diagnostic-tile"><small>DATENQUELLE</small><strong>${esc(source.mode||'idle')} · ${esc(source.status||'—')}</strong></div><div class="diagnostic-tile"><small>FRAMES / VERWORFEN</small><strong>${number(source.received_frames||0,0)} / ${number(source.dropped_frames||0,0)}</strong></div><div class="diagnostic-tile"><small>STATIONSPOSITION</small><strong>${source.simulated?'Simulationsreferenz':state?.config?.station_mode==='manual'?'Manuell':`GPS · ${esc(gps.status||'ohne Fix')}`}</strong></div>`;
+    const performance=source.performance,performanceBox=$('#performance-diagnostics');
+    performanceBox.hidden=!performance;
+    if(performance){
+      const load=finite(performance.processing_load)?Number(performance.processing_load):null;
+      const backend=source.dsp_backend==='numba_fused'?'Numba':source.dsp_backend==='scipy'?'SciPy':source.dsp_backend||'—';
+      $('#performance-summary').innerHTML=`<div class="diagnostic-tile${load!==null&&load>=1?' performance-warning':''}" title="Geglättete Pipeline-Verarbeitungszeit geteilt durch RF-Framedauer; keine Gesamt-CPU-Auslastung. Ab 100 % entsteht bei anhaltender Last ein Rückstau."><small>PIPELINE / RF-ZEIT · ${esc(backend)}</small><strong>${load===null?'—':`${number(load*100,0)} %`} · ${number(performance.last_pipeline_ms,1)} / ${number(performance.frame_duration_ms,1)} ms</strong></div><div class="diagnostic-tile" title="Wartende RF-Frames und Wartezeit des zuletzt verarbeiteten Frames."><small>RF-WARTESCHLANGE</small><strong>${number(performance.queue_depth,0)} / ${number(performance.queue_capacity,0)} · ${number(performance.queue_wait_ms,0)} ms</strong></div><div class="diagnostic-tile" title="Die Burstverarbeitung umfasst Decodierung, MUSIC und gegebenenfalls Aufzeichnung."><small>LETZTER BURST / ÜBERLÄUFE</small><strong>${number(performance.last_decode_ms,1)} ms · ${number(performance.overruns,0)} Überläufe</strong></div><div class="diagnostic-tile"><small>BURST-WARTESCHLANGE</small><strong>${number(performance.burst_queue_depth,0)} / ${number(performance.burst_queue_capacity,0)} · ${number(performance.decoded_bursts,0)} verarbeitet</strong></div>`;
+    }
     const daq=state?.daq;
     $('#daq-diagnostics').hidden=!daq;
     if(daq){$('#daq-diagnostic-status').textContent=daq.message||receiverStageLabel(daq);$('#daq-diagnostic-details').textContent=JSON.stringify(daq,null,2);}
@@ -379,7 +392,14 @@
     ctx.strokeStyle=themeColor('--grid');ctx.lineWidth=1;ctx.setLineDash([3,4]);ctx.beginPath();ctx.moveTo(cx,15);ctx.lineTo(cx,h-16);ctx.moveTo(20,cy);ctx.lineTo(w-20,cy);ctx.stroke();ctx.setLineDash([]);
     ctx.font=`8px ${themeColor('--mono')}`;ctx.textAlign='center';ctx.fillStyle=themeColor('--faint');ctx.fillText('VORNE / +y',cx,12);
     for(const antenna of antennas){const x=cx+antenna.x_m*scale,y=cy-antenna.y_m*scale;ctx.fillStyle=themeColor('--panel-soft');ctx.strokeStyle=themeColor('--cyan');ctx.beginPath();ctx.arc(x,y,9,0,Math.PI*2);ctx.fill();ctx.stroke();ctx.fillStyle=themeColor('--cyan');ctx.font=`9px ${themeColor('--mono')}`;ctx.textBaseline='middle';ctx.fillText(String(antenna.hardware_channel),x,y+.5);}
-    const dimensions=preset.dimensions||{};$('#array-dimensions').textContent=dimensions.circle_diameter_m?`Ø ${number(dimensions.circle_diameter_m*100,0)} cm · CH0 vorne`:`Seite ${number((dimensions.square_side_m||dimensions.side_length_m||.32)*100,0)} cm · CH4 Mitte`;
+    const dimensions=preset.dimensions||{};
+    $('#array-dimensions').textContent=dimensions.arm_radius_m
+      ? `Armlänge ${number(dimensions.arm_radius_m*1000,0)} mm · CH0 vorne · CH4 Mitte`
+      : dimensions.circle_diameter_m
+        ? `Ø ${number(dimensions.circle_diameter_m*1000,0)} mm · Radius ${number((dimensions.circle_radius_m??dimensions.circle_diameter_m/2)*1000,0)} mm · CH0 vorne`
+        : dimensions.square_side_m||dimensions.side_length_m
+          ? `Seite ${number((dimensions.square_side_m||dimensions.side_length_m)*1000,0)} mm · CH4 Mitte`
+          : `Apertur ${number(preset.physical_aperture?.maximum_element_separation_m*1000,0)} mm`;
   }
 
   function drawAll(){drawBearing();drawSpectrum();drawErrorChart();if($('#config-dialog').open)drawArray();}

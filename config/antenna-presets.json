@@ -100,6 +100,108 @@
         { "hardware_channel": 3, "x_m": -0.16, "y_m": -0.16, "z_m": 0.0 },
         { "hardware_channel": 4, "x_m": 0.0, "y_m": 0.0, "z_m": 0.0 }
       ]
+    },
+    {
+      "id": "pegasus_95",
+      "name": "Pegasus 95",
+      "layout": "cross_with_center",
+      "recommended_start": false,
+      "channel_order": "CH0 front; CH1 right; CH2 rear; CH3 left; CH4 center",
+      "dimensions": {
+        "arm_radius_m": 0.095,
+        "opposite_element_spacing_m": 0.19,
+        "adjacent_outer_spacing_m": 0.134350288425444,
+        "azimuth_step_deg": 90
+      },
+      "physical_aperture": {
+        "maximum_element_separation_m": 0.19,
+        "bounding_box_width_x_m": 0.19,
+        "bounding_box_depth_y_m": 0.19,
+        "bounding_box_height_z_m": 0.0
+      },
+      "antennas": [
+        {
+          "hardware_channel": 0,
+          "x_m": 0.0,
+          "y_m": 0.095,
+          "z_m": 0.0
+        },
+        {
+          "hardware_channel": 1,
+          "x_m": 0.095,
+          "y_m": 0.0,
+          "z_m": 0.0
+        },
+        {
+          "hardware_channel": 2,
+          "x_m": 0.0,
+          "y_m": -0.095,
+          "z_m": 0.0
+        },
+        {
+          "hardware_channel": 3,
+          "x_m": -0.095,
+          "y_m": 0.0,
+          "z_m": 0.0
+        },
+        {
+          "hardware_channel": 4,
+          "x_m": 0.0,
+          "y_m": 0.0,
+          "z_m": 0.0
+        }
+      ]
+    },
+    {
+      "id": "pentagon_105",
+      "name": "Pentagon 105",
+      "layout": "uniform_circular_array",
+      "recommended_start": false,
+      "channel_order": "CH0 front; CH1 through CH4 clockwise in 72 degree steps",
+      "dimensions": {
+        "circle_diameter_m": 0.21,
+        "circle_radius_m": 0.105,
+        "adjacent_element_spacing_m": 0.123434902981419,
+        "azimuth_step_deg": 72
+      },
+      "physical_aperture": {
+        "maximum_element_separation_m": 0.199721868421982,
+        "bounding_box_width_x_m": 0.199721868421982,
+        "bounding_box_depth_y_m": 0.189946784409369,
+        "bounding_box_height_z_m": 0.0
+      },
+      "antennas": [
+        {
+          "hardware_channel": 0,
+          "x_m": 0.0,
+          "y_m": 0.105,
+          "z_m": 0.0
+        },
+        {
+          "hardware_channel": 1,
+          "x_m": 0.099860934210991,
+          "y_m": 0.032446784409369,
+          "z_m": 0.0
+        },
+        {
+          "hardware_channel": 2,
+          "x_m": 0.06171745149071,
+          "y_m": -0.084946784409369,
+          "z_m": 0.0
+        },
+        {
+          "hardware_channel": 3,
+          "x_m": -0.06171745149071,
+          "y_m": -0.084946784409369,
+          "z_m": 0.0
+        },
+        {
+          "hardware_channel": 4,
+          "x_m": -0.099860934210991,
+          "y_m": 0.032446784409369,
+          "z_m": 0.0
+        }
+      ]
     }
   ]
 }

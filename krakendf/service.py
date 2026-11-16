@@ -22,6 +22,8 @@ from .hardware import GPSReader, HeimdallClient, MANUAL_GAINS_DB
 from .pipeline import LivePipeline, spectrum
 from .storage import SessionStore
 from .managed_daq import ManagedDAQ
+from .diagnostics import DiagnosticLog
+from .snr import estimate_packet_snr
 
 
 def utcnow() -> str:
@@ -52,6 +54,7 @@ class DemoService:
     def __init__(self, data_dir: Path):
         self.data_dir = data_dir
         data_dir.mkdir(parents=True, exist_ok=True)
+        self.diagnostic_log = DiagnosticLog(data_dir)
         self.config_path = data_dir / "config.json"
         self.config = AppConfig.model_validate_json(self.config_path.read_text()) if self.config_path.exists() else AppConfig()
         self.store = SessionStore(data_dir / "sessions")
@@ -100,6 +103,7 @@ class DemoService:
 
     def event(self, message: str, level: str = "info"):
         self.events.appendleft({"time": utcnow(), "level": level, "message": message})
+        self.diagnostic_log.write(message, level)
 
     async def start(self, initial_mode="live"):
         self.event("KrakenDF bereit. Standardquelle ist der lokale KrakenSDR; Simulation ist ausdrücklich wählbar.")
@@ -107,10 +111,17 @@ class DemoService:
         await self._start_gps()
 
     async def close(self):
-        if self.recording:
-            await self.stop_recording()
-        await self._stop_source()
-        await self._stop_gps()
+        try:
+            if self.recording:
+                await self.stop_recording()
+        finally:
+            try:
+                await self._stop_source()
+            finally:
+                try:
+                    await self._stop_gps()
+                finally:
+                    self.diagnostic_log.close()
 
     async def _stop_source(self):
         task, self._task = self._task, None
@@ -231,6 +242,9 @@ class DemoService:
         self.source.update(mode=mode, simulated=(mode == "simulation"), status="connecting" if mode == "live" else "running" if mode == "simulation" else "stopped",
                            message="Synthetische IQ-Daten · beschleunigter Demoablauf" if mode == "simulation" else "Verbindung zu Heimdall" if mode == "live" else "Quelle angehalten")
         self.source["managed"] = use_managed
+        self.source.pop("performance", None)
+        self.source.pop("dsp_backend", None)
+        self.source.pop("dsp_fallback_reason", None)
         if use_managed:
             self.source.update(host="127.0.0.1", port=5000)
         if host is not None:
@@ -310,14 +324,14 @@ class DemoService:
                 "run_id": self.recording["id"] if self.recording else self.run_id,
                 "timestamp": meta.get("timestamp", utcnow())}
 
-    async def accept(self, observation, iq=None, spec=None, record=True):
+    async def accept(self, observation, iq=None, spec=None, record=True, update_spectrum=True):
         if observation is None:
             return
         observation = clean(observation)
         self.observations.append(observation)
         self.emitters[observation["callsign"]] = {**observation, "last_seen": observation["timestamp"], "_seen_at": time.time()}
         self.stats = statistics(list(self.observations))
-        if spec and spec.get("power_db"):
+        if update_spectrum and spec and spec.get("power_db"):
             self.spectrum = spec
         if record and self.recording:
             try:
@@ -356,7 +370,11 @@ class DemoService:
                 "sample_rate_hz": fs, "sample_start": index * count, "sample_end": (index+1)*count,
                 "stream_epoch": "simulated-fixture-v1", "burst_id": f"sim-{index}",
                 "source_mode": "simulation", "simulated": True, "timestamp": utcnow(),
-                "iq_frequency_hz": channel.frequency_hz, "iq_sample_rate_hz": fs}
+                "iq_frequency_hz": channel.frequency_hz, "iq_sample_rate_hz": fs,
+                "snr_db": 10 * math.log10(1 / (2 * .12**2)),
+                "snr_kind": "synthetic_known_noise", "snr_status": "synthetic",
+                "snr_noise_source": "synthetic_fixture", "snr_signal_power": 1.0,
+                "snr_noise_power": 2 * .12**2}
         observation = self._build_observation(payload, estimate, meta,
                                               {"valid": True, "identity_source": "synthetic_fixture_metadata",
                                                "simulated": True, "decoder_verified": False})
@@ -399,37 +417,75 @@ class DemoService:
         except Exception as exc:
             self.source.update(status="error", message=str(exc))
             self.event(f"Simulation: {exc}", "error")
+            self.diagnostic_log.exception("Simulation", exc)
 
     async def _live_loop(self):
         client = HeimdallClient(self.source["host"], self.source["port"], timeout=30 if self.source["managed"] else 10)
         self.client = client
         pump = None
+        decoder = None
         queue = asyncio.Queue(maxsize=3)
+        burst_queue = asyncio.Queue(maxsize=8)
+        performance = {"frame_duration_ms": 0.0, "last_pipeline_ms": 0.0,
+                       "last_decode_ms": 0.0, "processing_load": 0.0,
+                       "queue_depth": 0, "queue_capacity": queue.maxsize,
+                       "queue_wait_ms": 0.0, "burst_queue_depth": 0,
+                       "burst_queue_capacity": burst_queue.maxsize,
+                       "overruns": 0, "decoded_bursts": 0}
+        self.source["performance"] = performance
+        measured_frames = 0
 
         async def read_frames():
             while True:
                 frame = await client.read_frame()
                 if queue.full():
                     self.source["dropped_frames"] += 1
+                    performance["overruns"] += 1
                     self.event("DAQ-Verarbeitung überlastet: Datenlücke, betroffene Bursts werden verworfen.", "warning")
                     raise RuntimeError("Verarbeitung zu langsam; weniger Kanäle oder schnelleren Host verwenden.")
-                await queue.put(frame)
+                queue.put_nowait((frame, time.perf_counter()))
+                performance["queue_depth"] = queue.qsize()
+
+        async def decode_bursts():
+            # A slow packet decoder must not pause coherent RF channelization.
+            # Both queues stay bounded; real overload remains an explicit error.
+            while True:
+                burst, context = await burst_queue.get()
+                performance["burst_queue_depth"] = burst_queue.qsize()
+                began = time.perf_counter()
+                try:
+                    await self._decode_burst(burst, context=context)
+                    performance["decoded_bursts"] += 1
+                finally:
+                    performance["last_decode_ms"] = (time.perf_counter() - began) * 1000
+                    burst_queue.task_done()
 
         try:
+            pipeline = LivePipeline(self.config)
+            self.source.update(status="preparing", message="Signalverarbeitung wird vorbereitet …")
+            acceleration = await asyncio.to_thread(pipeline.prepare)
+            self.source["dsp_backend"] = acceleration["backend"]
+            self.source["dsp_fallback_reason"] = acceleration.get("fallback_reason")
+            self.event("Signalverarbeitung: " + acceleration["backend"]
+                       + (" · " + str(acceleration["fallback_reason"]) if acceleration.get("fallback_reason") else ""))
             if self.source["managed"]:
                 self.source.update(status="starting", message="Lokaler Kraken-Stack wird gestartet …")
                 await self.daq.start(self.config.model_dump())
             await client.connect()
             await client.configure(center_frequency_hz=self.config.center_frequency_hz, gain_db=self.config.gain_db)
-            pipeline = LivePipeline(self.config)
             pump = asyncio.create_task(read_frames())
+            decoder = asyncio.create_task(decode_bursts())
             while True:
                 if pump.done():
                     await pump
+                if decoder.done():
+                    await decoder
                 try:
-                    frame = await asyncio.wait_for(queue.get(), timeout=1)
+                    frame, queued_at = await asyncio.wait_for(queue.get(), timeout=1)
                 except asyncio.TimeoutError:
                     continue
+                performance["queue_depth"] = queue.qsize()
+                performance["queue_wait_ms"] = (time.perf_counter() - queued_at) * 1000
                 self.source["received_frames"] += 1
                 if not frame.quality.get("valid"):
                     pipeline.process(frame)
@@ -443,17 +499,39 @@ class DemoService:
                     self.source.update(status="mismatch", message="Heimdall-Istwerte für Frequenz, Rate oder Gain stimmen noch nicht mit dem Messprofil überein.")
                     continue
                 self.source.update(status="running", message="Kohärente Fünfkanaldaten · Heimdall")
+                began = time.perf_counter()
                 spec, bursts = await asyncio.to_thread(pipeline.process, frame)
+                elapsed = time.perf_counter() - began
+                duration = frame.iq.shape[1] / frame.sample_rate_hz
+                performance["last_pipeline_ms"] = elapsed * 1000
+                performance["frame_duration_ms"] = duration * 1000
+                load = elapsed / max(duration, 1e-9)
+                performance["processing_load"] = (.8 * performance["processing_load"] + .2 * load
+                                                   if measured_frames else load)
+                measured_frames += 1
                 if spec:
                     self.spectrum = spec
                 for burst in bursts:
-                    await self._decode_burst(burst)
+                    if burst_queue.full():
+                        performance["overruns"] += 1
+                        raise RuntimeError("Decoder-Verarbeitung zu langsam; Paketwarteschlange voll. RF-Kanäle und Decoderparameter prüfen.")
+                    recording_id = self.recording["id"] if self.recording else None
+                    burst_queue.put_nowait((burst, {"recording_id": recording_id,
+                                                   "run_id": recording_id or self.run_id,
+                                                   "spectrum": spec or self.spectrum}))
+                    performance["burst_queue_depth"] = burst_queue.qsize()
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             self.source.update(status="error", message=str(exc))
             self.event(f"Kraken: {exc}", "error")
+            self.diagnostic_log.write("Live-Leistung: " + json.dumps(clean(performance)), "error")
+            self.diagnostic_log.exception("Kraken Live", exc)
         finally:
+            if decoder:
+                decoder.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await decoder
             if pump:
                 pump.cancel()
                 with suppress(asyncio.CancelledError, Exception):
@@ -462,7 +540,7 @@ class DemoService:
             if self.source["managed"]:
                 await self.daq.stop()
 
-    async def _decode_burst(self, burst):
+    async def _decode_burst(self, burst, context=None):
         energy = np.mean(abs(burst.iq)**2, axis=1)
         antenna = int(np.argmax(energy))
         try:
@@ -497,10 +575,22 @@ class DemoService:
                         "burst_id": f"{burst.channel['id']}-{burst.sample_start}-{number}",
                         "stream_epoch": burst.stream_epoch, "source_mode": "live", "simulated": False,
                         "timestamp": stamp, "decoder_antenna": antenna}
-                obs = self._build_observation(packet.payload, estimate, meta, {**burst.quality, **packet.quality, "decoder_verified": True})
-                await self.accept(obs, burst.iq, self.spectrum)
+                snr = await asyncio.to_thread(estimate_packet_snr, burst.iq, left, right,
+                                               sample_rate_hz=burst.sample_rate_hz,
+                                               capture_quality=burst.quality)
+                meta.update(snr)
+                obs = self._build_observation(packet.payload, estimate, meta,
+                                              {**burst.quality, **packet.quality, **snr, "decoder_verified": True})
+                if context is not None:
+                    obs["run_id"] = context["run_id"]
+                record = context is None or (self.recording is not None
+                                             and self.recording["id"] == context["recording_id"])
+                packet_spectrum = context.get("spectrum", self.spectrum) if context is not None else self.spectrum
+                await self.accept(obs, burst.iq, packet_spectrum, record=record,
+                                  update_spectrum=context is None)
         except Exception as exc:
             self.event(f"Decoder {burst.channel['id']}: {exc}", "error")
+            self.diagnostic_log.exception(f"Decoder {burst.channel['id']}", exc)
 
     async def start_recording(self, name="", kind="measurement"):
         if self.recording:
@@ -590,6 +680,9 @@ class DemoService:
         self.active_calibration_id = None
         self.reset_measurements()
         self.source.update(mode="replay", status="running", simulated=bool(session["simulated"]), message=f"Replay: {session['name']}")
+        self.source.pop("performance", None)
+        self.source.pop("dsp_backend", None)
+        self.source.pop("dsp_fallback_reason", None)
         self.replay = {"session_id": session_id, "speed": speed, "progress": 0, "recomputed_iq": True}
         self._task = asyncio.create_task(self._replay_loop(events, speed))
 
@@ -627,6 +720,7 @@ class DemoService:
         except Exception as exc:
             self.source.update(status="error", message=f"Replay: {exc}")
             self.event(f"Replay: {exc}", "error")
+            self.diagnostic_log.exception("Replay", exc)
 
     async def stop_replay(self):
         await self.set_source("idle")
