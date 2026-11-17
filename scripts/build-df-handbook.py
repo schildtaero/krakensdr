@@ -59,7 +59,9 @@ def signal_chain():
 
 
 def arrays():
-    presets = json.loads((ROOT / "config/antenna-presets.json").read_text())["presets"]
+    by_id = {preset["id"]: preset for preset in json.loads(
+        (ROOT / "config/antenna-presets.json").read_text())["presets"]}
+    presets = [by_id[key] for key in ("uca_300mm", "uca_560mm", "square_center_320mm")]
     fig, axes = plt.subplots(1, 3, figsize=(10.4, 3.7))
     titles = ["Kreis kompakt · Ø 300 mm", "Kreis groß · Ø 560 mm", "Quadrat + Mitte · 320 mm"]
     for ax, preset, title in zip(axes, presets, titles):
@@ -85,6 +87,75 @@ def arrays():
     axes[0].set_ylabel("y nach vorne [mm]", color=MUTED, fontsize=9)
     fig.subplots_adjust(wspace=.30)
     save(fig, "df-antennen")
+
+
+def compact_arrays():
+    """Named compact profiles; all dimensions refer to antenna centres."""
+    by_id = {preset["id"]: preset for preset in json.loads(
+        (ROOT / "config/antenna-presets.json").read_text())["presets"]}
+    fig, axes = plt.subplots(1, 2, figsize=(10.4, 4.6))
+    for ax, key in zip(axes, ("pegasus_95", "pentagon_105")):
+        preset = by_id[key]
+        antennas = sorted(preset["antennas"], key=lambda item: item["hardware_channel"])
+        positions = np.array([[item["x_m"] * 1000, item["y_m"] * 1000] for item in antennas])
+        ax.set(xlim=(-165, 165), ylim=(-150, 165), aspect="equal",
+               xticks=[-100, 0, 100], yticks=[-100, 0, 100])
+        ax.axhline(0, color="#dce5e8", lw=.7)
+        ax.axvline(0, color="#dce5e8", lw=.7)
+        ax.text(0, 153, "VORNE / +y / 0°", ha="center", va="center", color=CYAN, fontsize=9)
+        ax.annotate("", (0, 141), (0, 120),
+                    arrowprops={"arrowstyle": "->", "color": CYAN, "lw": 1.4})
+        ax.set_title(preset["name"], fontsize=13, color=INK, weight="bold", pad=13)
+        if key == "pegasus_95":
+            for x, y in positions[:4]:
+                ax.plot([0, x], [0, y], color="#b3c9ce", lw=1.4)
+            ax.plot([95, 135], [0, 0], color=BLUE, lw=.7)
+            ax.plot([0, 135], [95, 95], color=BLUE, lw=.7)
+            ax.annotate("", (135, 95), (135, 0),
+                        arrowprops={"arrowstyle": "<->", "color": BLUE, "lw": 1})
+            ax.text(144, 47.5, "95 mm", rotation=90, ha="center", va="center", color=BLUE, fontsize=9)
+            half_width = preset["dimensions"]["opposite_element_spacing_m"] * 500
+            label = "190 mm · gegenüberliegende Antennen"
+        else:
+            radius = preset["dimensions"]["circle_radius_m"] * 1000
+            angles = np.linspace(0, 2 * np.pi, 180)
+            ax.plot(radius * np.sin(angles), radius * np.cos(angles),
+                    color="#b3c9ce", lw=1, linestyle=(0, (3, 3)))
+            ax.plot(*np.vstack([positions, positions[0]]).T, color="#b3c9ce", lw=1.2)
+            endpoint = (radius / np.sqrt(2), radius / np.sqrt(2))
+            ax.annotate("", endpoint, (0, 0),
+                        arrowprops={"arrowstyle": "->", "color": BLUE, "lw": 1})
+            ax.text(29, 53, "R = 105 mm", ha="center", va="center", color=BLUE, fontsize=9,
+                    bbox={"facecolor": "white", "edgecolor": "none", "pad": 1.4})
+            half_width = radius
+            label = "Ø 210 mm · Antennenkreis"
+        for x in (-half_width, half_width):
+            ax.plot([x, x], [-113, -129], color=BLUE, lw=.7)
+        ax.annotate("", (half_width, -123), (-half_width, -123),
+                    arrowprops={"arrowstyle": "<->", "color": BLUE, "lw": 1})
+        ax.text(0, -138, label, ha="center", va="center", color=BLUE, fontsize=8.5)
+        for antenna, (x, y) in zip(antennas, positions):
+            ax.scatter(x, y, s=195, facecolor=CYAN, edgecolor="white", linewidth=1.3, zorder=3)
+            if x < -.01:
+                offset, align = (-12, 8), "right"
+            else:
+                offset, align = (12, 8), "left"
+            if abs(x) < .01 and y > 0:
+                offset = (12, -3)
+            if key == "pegasus_95" and antenna["hardware_channel"] == 0:
+                offset, align = (-12, -3), "right"
+            elif key == "pegasus_95" and antenna["hardware_channel"] == 1:
+                offset, align = (0, -17), "center"
+            ax.annotate(f"CH{antenna['hardware_channel']}", (x, y), xytext=offset,
+                        textcoords="offset points", ha=align, va="center", color=INK,
+                        fontsize=10, weight="bold")
+        ax.set_xlabel("x nach rechts [mm]", color=MUTED, fontsize=9)
+        ax.tick_params(colors=MUTED, labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_color("#dce5e8")
+    axes[0].set_ylabel("y nach vorne [mm]", color=MUTED, fontsize=9)
+    fig.subplots_adjust(wspace=.22, bottom=.13, top=.85)
+    save(fig, "df-kompaktprofile")
 
 
 def heading():
@@ -141,6 +212,7 @@ def main():
     plt.rcParams.update({"font.family": "DejaVu Sans", "text.color": INK, "axes.labelcolor": MUTED, "font.size": 10})
     signal_chain()
     arrays()
+    compact_arrays()
     heading()
     rms_example()
     environment = os.environ.copy()

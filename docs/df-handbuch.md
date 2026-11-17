@@ -35,13 +35,13 @@ Ein feststehendes Fünfantennen-Array peilt die Positionspakete bewegter
 BFT-Emitter. Deren übermittelte GPS-Position ermöglicht den Vergleich
 zwischen gemessener Richtung und geografischer Sollrichtung.
 
-Dieses Handbuch erklärt das Peilprinzip, die drei Antennenlayouts,
-den Heading-Abgleich sowie Messung, Kalibrierung und Auswertung.
+Dieses Handbuch erklärt das Peilprinzip, fünf Antennenprofile,
+GPS-Status und Heading-Abgleich sowie Messung, Kalibrierung und Auswertung.
 \vfill
 
 \begin{tabular}{@{}ll}
-Softwarestand & 0.2.1 · Quellstand \texttt{402d917}\\[2mm]
-Dokumentstand & 16. November 2026 · Ausgabe 1\\[2mm]
+Softwarestand & 0.2.3 · Quellstand \texttt{980d850}\\[2mm]
+Dokumentstand & 17. November 2026 · Ausgabe 2\\[2mm]
 Empfänger & KrakenSDR · fünf kohärente Empfangskanäle\\[2mm]
 Positionsquelle & ARCELI VK-162 oder manuelle Stationsposition\\[2mm]
 Bedienung & Lokales Webinterface unter \texttt{127.0.0.1:8080}
@@ -54,9 +54,13 @@ Bedienung & Lokales Webinterface unter \texttt{127.0.0.1:8080}
 \tableofcontents
 \vfill
 
-**So nutzen Sie das Handbuch:** Für den ersten Betrieb Kapitel 3 sowie 6 bis 8
-lesen. Für eine belastbare Vergleichsmessung zusätzlich Kapitel 9 bis 12
-beachten. Kapitel 2, 4 und 5 erklären die technische Verarbeitung.
+**So nutzen Sie das Handbuch:** Für den ersten Betrieb Antennenaufbau,
+Position/Heading, GPS-Anzeige und Live-Start lesen. Für Vergleichsmessungen
+zusätzlich Record/Replay, Kalibrierung und RMS beachten. Diagnose und
+Aktualisierung enthalten den Log-Download und Windows-Git-Befehle.
+
+**Neu in dieser Ausgabe:** Pegasus 95 und Pentagon 105, Satelliten- und
+Verbindungsanzeige, Paket-SNR, beschleunigte Verarbeitung und Diagnose-ZIP.
 
 **Aussagegrenze:** Die Software und der native Linux-Build wurden geprüft.
 Eine vermessene Genauigkeit des realen Kraken-/433-MHz-/VK-162-Aufbaus liegt
@@ -150,7 +154,7 @@ Magnetfußantennen senkrecht, auf gleicher Höhe und mit vergleichbarer
 Umgebung aufstellen. Eine geeignete metallische Grundfläche, möglichst
 gleiche elektrische Kabellängen und feste Kanalbeschriftungen sind wichtig.
 
-![Die drei Profile in derselben Koordinatenskala, Draufsicht. Die markierte Vorderseite bestimmt den lokalen Nullwinkel.](abbildungen/df-antennen.png){width=100%}
+![Die drei ursprünglichen Vergleichsprofile in derselben Koordinatenskala, Draufsicht. Die markierte Vorderseite bestimmt den lokalen Nullwinkel.](abbildungen/df-antennen.png){width=100%}
 
 | Profil | Aufbau und Kanalreihenfolge | Einordnung |
 |:--|:--|:--|
@@ -173,6 +177,38 @@ deaktivieren. Die Software erkennt ein physisches Verschieben nicht selbst.
 Ein größeres Array garantiert keinen kleineren Fehler: Nebenmaxima,
 Mehrwegeausbreitung und Montage können den Aperturvorteil aufheben. Genau
 diesen Zusammenhang soll die Demo messen.
+
+\newpage
+
+# Pegasus 95 und Pentagon 105
+
+Die beiden kompakten Profile sind zusätzlich auswählbar. **CH0 zeigt bei
+beiden nach vorne.** Beim Pegasus-Originalentwurf liegt diese Richtung links
+in der Zeichnung; hier sind die Profile in lokalen Softwarekoordinaten
+mit der Vorderseite oben dargestellt.
+
+![Die kompakten Profile: Pegasus 95 mit Mittelantenne; Pentagon 105 mit allen fünf Antennen auf dem Kreis. Maße beziehen sich auf Antennenmitten.](abbildungen/df-kompaktprofile.png){width=100%}
+
+| Kanal | Pegasus 95: x / y [mm] | Pentagon 105: x / y [mm] |
+|:--|--:|--:|
+| CH0 | 0 / +95 | 0 / +105 |
+| CH1 | +95 / 0 | +99,9 / +32,4 |
+| CH2 | 0 / −95 | +61,7 / −84,9 |
+| CH3 | −95 / 0 | −61,7 / −84,9 |
+| CH4 | 0 / 0 | −99,9 / +32,4 |
+
+**Pegasus 95** ist ein Kreuz mit 95 mm Armlänge, 190 mm zwischen
+gegenüberliegenden Antennen und CH4 in der Mitte. **Pentagon 105** hat
+105 mm Radius, also 210 mm Durchmesser des Mittelpunktskreises. CH1–CH4
+folgen CH0 in 72°-Schritten im Uhrzeigersinn; es gibt keine Mittelantenne.
+Die Tabelle ist gerundet; die Software nutzt die hinterlegten Koordinaten.
+
+Unter **Setup → Antennenprofil** das tatsächlich aufgebaute Profil wählen.
+Eine bisher gespeicherte Auswahl wird durch ein Update nicht automatisch
+geändert. Das Heading beschreibt beim Pegasus die Richtung von CH4 zu CH0.
+Für einen Druckhalter Fußdurchmesser, Wandstärke und Brim zu den
+Mittelpunktsmaßen hinzurechnen. Die Druckbettgröße allein bestimmt keine
+RF-Genauigkeit.
 
 \newpage
 
@@ -257,6 +293,56 @@ Aktive Kanalfilter dürfen sich nicht überlappen. LoRa benötigt mindestens
 
 \newpage
 
+# SNR und Verarbeitungsreserve
+
+**02 / Tracking** zeigt pro Rufzeichen und in den Emitterdetails das
+geschätzte Paket-SNR im jeweiligen Empfangskanal. Gemittelt werden die
+Leistungen aller fünf Antennen. Aus ruhigen Bereichen vor oder nach der
+erkannten Aktivität wird eine Rauschreferenz bestimmt:
+
+$$\mathrm{SNR}_{\mathrm{dB}}=10\log_{10}
+\!\left(\frac{P_{\mathrm{Paket}}-P_{\mathrm{Rauschen}}}
+{P_{\mathrm{Rauschen}}}\right).$$
+
+Die Referenz liegt mindestens 2 ms außerhalb der Aktivitätsgrenzen und
+umfasst mindestens 5 ms sowie 64 Samples. Widersprüchliche oder stark
+schwankende Referenzen werden verworfen. **Negative dB-Werte sind gültig;
+„—“ bedeutet kein belastbarer Schätzwert.** Ein nicht auflösbarer
+Signalanteil wird nicht als künstlicher 0-dB-Wert angezeigt.
+
+Das SNR ist unkalibriert und hängt von der Kanalbandbreite ab. Es ist kein
+DF-Score, keine Winkelunsicherheit und kein nach LoRa-Dechirping gewonnener
+Wert. In der Simulation stammt es aus dem bekannten künstlichen Rauschmodell.
+Verfahren, Wert und Status werden gespeichert und nach Excel exportiert.
+
+## Warum 2,4 MS/s anspruchsvoll sind
+
+Fünf Antennen bei 2,4 MS/s bedeuten zwölf Millionen komplexe Eingangssamples
+pro Sekunde. Der optionale Numba-Pfad verbindet Mischung, unveränderten
+kausalen Filter und Dezimierung und vermeidet große Zwischenarrays. Er wird
+vor Empfangsbeginn vorbereitet; ohne Numba bleibt SciPy nutzbar. Die lokale
+DAQ-Installation bringt Numba bereits mit.
+
+| Softwarebenchmark: zwei RF-Kanäle bei 2,4 MS/s | Median je Frame |
+|:--|--:|
+| Ursprüngliche Kanalverarbeitung | 471,7 ms |
+| Zusammengefasster Numba-Pfad | 259,4 ms |
+| Im Frame enthaltene Empfangsdauer | 436,9 ms |
+
+Das entspricht etwa 1,82-fachem Durchsatz auf dem Entwicklungsrechner.
+Gemessen wurden Kanalverarbeitung, Spektrum und Burst-Erkennung;
+USB/DAQ, Decoder, MUSIC und Aufnahme sind darin nicht enthalten.
+Der Benchmark ist keine Echtzeitzusage für den Zielhost.
+
+**Status → Verarbeitung** zeigt Pipeline/RF-Zeit, Warteschlangen und
+Bearbeitungszeiten. Dauerhaft über 100 % bedeutet Rückstau der RF-Pipeline;
+der Wert ist keine Gesamt-CPU-Auslastung. Decodierung und MUSIC laufen in
+einem getrennten Worker. Die Grenzen bleiben drei wartende RF-Frames und
+acht Bursts; Überlast bleibt ein sichtbarer Fehler. Ein kleinerer FFT-Wert
+ersetzt keine ausreichend schnelle Kanalverarbeitung.
+
+\newpage
+
 # Position und Heading richtig setzen
 
 Unter **Setup → Stationsposition & GPS** die GPS-Maus oder die manuelle
@@ -264,12 +350,13 @@ Stationsposition auswählen. Für die VK-162 zunächst 9600 Baud verwenden;
 bei Bedarf **GPS-Ports suchen** und einen eindeutigen Port wählen. Unter
 Linux/WSL ist dies häufig `/dev/ttyACM0` oder `/dev/ttyUSB0`.
 
-Bei GPS-Betrieb mittelt die Anwendung zehn gültige Positionsmeldungen und
-fixiert dann den Standort. **Diesen Anker vor einer Aufnahme abwarten:**
+Bei GPS-Betrieb mittelt die Anwendung zehn zeitlich verschiedene gültige
+Positionsmeldungen und fixiert dann den Standort. RMC und GGA derselben
+UTC-Epoche zählen einmal. **Diesen Anker vor einer Aufnahme abwarten:**
 Während einer Aufnahme wird er nicht neu aufgebaut. Ein späterer Ausfall
 der GPS-Maus verwirft einen vorhandenen festen Stationsanker nicht. Nach
-einem Stationsumzug die Position bewusst neu setzen; auch ein kleiner
-Standortfehler wirkt sich auf die Referenzrichtung aus.
+einem Stationsumzug den Backendprozess neu starten, den Anker neu bestimmen
+lassen und das Heading prüfen.
 
 ![Heading ist die geografische Richtung der markierten Arrayfront. Das Beispiel zeigt H = 35° bei einer lokalen Peilung von 40° zum bekannten BFT.](abbildungen/df-heading.png){width=83%}
 
@@ -291,6 +378,49 @@ Heading °** setzen. Es gilt geografisch Nord, nicht magnetisch Nord.
 Der GPS-Kurs einer stillstehenden VK-162 ist kein Array-Heading.
 Heading-Änderungen setzen die Statistik zurück und deaktivieren die
 Winkelkorrektur; Aufnahme und Replay vorher beenden.
+
+\newpage
+
+# GPS-Verbindung und Satelliten
+
+Die GPS-Kachel zeigt die tatsächliche Hardwaretelemetrie unabhängig davon,
+ob die Stationsreferenz manuell, simuliert oder aus einer Aufnahme stammt.
+Ein Klick öffnet den Detaildialog mit Port/Baudrate, Datenalter, Satelliten,
+Signalbalken, HDOP und Fortschritt der Standortmittelung.
+
+| Zustand | Bedeutung |
+|:--|:--|
+| Nicht gefunden / nicht eingerichtet | Kein eindeutiger GPS-Port oder keine passende Konfiguration. USB/WSL und Portwahl prüfen. |
+| Verbunden, noch keine Daten | Serieller Port offen, aber bislang keine Bytes angekommen. |
+| Daten, kein gültiges NMEA | Bytes kommen an; aktuelle prüfsummengültige Meldungen fehlen. Baudrate und Port prüfen. |
+| Satellitensignal, noch kein Fix | Positive Signalwerte werden gemeldet; eine gültige Position fehlt noch. |
+| Gültiger Fix, ggf. 2D / 3D | Aktuelle gültige Positionsmeldung; Fixart nur bei entsprechender Empfängermeldung. |
+| Veraltet / Verbindungsfehler | Aktualisierungen fehlen oder Portzugriff/Lesen ist gescheitert. |
+
+Die Hauptanzeige kann beispielsweise **Signal 3 · Sichtfeld 9 · Fix 0**
+zeigen. Die Werte haben unterschiedliche Bedeutungen:
+
+- **Signal:** Satelliten mit gemeldetem positivem C/N0-Wert.
+- **Sichtfeld:** vom Empfänger per GSV gemeldete Satelliten.
+- **Fix:** laut GGA/GSA für die Positionslösung verwendete Satelliten.
+
+**0 ist eine gemeldete Null; „—“ steht für unbekannt oder veraltet.** Eine
+Maus kann eine gültige Position liefern, ohne GSV-Sichtfeld oder Signalwerte
+auszugeben. Mehrteilige GSV-Meldungen werden vollständig zusammengesetzt;
+mehrere Signalbänder sollen Satelliten nicht doppelt zählen.
+
+Die Balken im Dialog zeigen **C/N0 in dB-Hz**. Sie gehören zum GNSS-Empfang;
+das SNR im Tracking beschreibt die 433-MHz-Pakete. Positions-/Datenmeldungen
+gelten nach ungefähr fünf Sekunden als veraltet, Satellitenwerte nach zehn.
+GSA/GSV aktualisieren keinen alten Positionszeitstempel. Auch bei Ausfall der
+Backend-Verbindung altern die sichtbaren Angaben im Browser weiter.
+
+**GPS neu verbinden** öffnet den konfigurierten Port erneut. Bei leerem Port
+und GPS-Positionsquelle wird automatisch gesucht. Aufnahme und Replay vorher
+beenden. Ein vorhandener Stationsanker bleibt dabei erhalten. Beim Erststart
+die VK-162 mit freier Sicht zum Himmel platzieren und gegebenenfalls mehrere
+Minuten auf den ersten Fix warten. Eine stillstehende GPS-Maus liefert kein
+verlässliches Array-Heading.
 
 \newpage
 
@@ -429,7 +559,7 @@ eine Aufnahme speichert den gesamten Lauf.
 | Tabellenblatt | Inhalt |
 |:--|:--|
 | Sitzung | Quelle, Messprofil und Aufnahmemetadaten. |
-| Messungen | Einzelwerte, rohe/korrigierte/Referenzwinkel, Fehler, Qualitäts- und Paketdaten. |
+| Messungen | Einzelwerte, Winkel, Fehler, SNR mit Verfahren/Status sowie Qualitäts- und Paketdaten. |
 | Gesamt | Gesamt-RMS, Bias, Anzahl und Abdeckung. |
 | Azimut | Werte je Referenzazimutsektor. |
 | Kalibrierung | Zugehörige Modelle und Prüfresultate. |
@@ -567,6 +697,55 @@ Trainingsort beweist keine allgemeine Genauigkeit.
 
 \newpage
 
+# Genauigkeit und Integration
+
+Größere Arrays reagieren bei gleicher Restphasenqualität empfindlicher auf
+Winkeländerungen. Für ein ideales Fünfantennen-Kreisarray ist der durch
+kleine unabhängige Phasenfehler verursachte Winkelfehler ungefähr umgekehrt
+proportional zum Durchmesser. Ø560 mm ergibt gegenüber Ø200 mm etwa Faktor
+2,8 weniger von diesem Fehlerbeitrag.
+
+**Rechenbeispiele bei 433 MHz:** Die angenommenen Phasenfehler sind keine
+gemessenen Kraken-Eigenschaften. Angegeben ist ausschließlich der ideale
+Phasenfehlerbeitrag zum Winkel-RMS.
+
+| Geometrie | Bei 5° RMS Restphase je Kanal | Bei 10° RMS |
+|:--|--:|--:|
+| Pegasus 95 | 4,1° | 8,2° |
+| Pentagon 105 | 3,3° | 6,6° |
+| Kreis Ø200 mm, Vergleichsgeometrie | 3,5° | 7,0° |
+| Kreis Ø560 mm | 1,2° | 2,5° |
+
+MUSIC muss diese idealen Werte nicht erreichen. Headingfehler, ungenaue
+GPS-Referenzen, Montage und Reflexionen kommen hinzu. Die Werte sind keine
+garantierten Maximalfehler. Ein guter Gesamt-RMS bei wenigen erfolgreichen
+Decodes belegt außerdem keine hohe Paketempfangsquote.
+
+## Ein Blech als kontrollierte Störung
+
+Ein aufrechtes Blech seitlich neben dem Array kann einen zusätzlichen
+reflektierten Empfangspfad erzeugen. Ein Blech über den Antennen verändert
+zusätzlich Antennencharakteristik, Kopplung und Beugung. Auch ein starkes
+Signal und hoher DF-Score können dabei mit einer falschen Peilung einhergehen.
+
+1. Stillstehenden BFT und festes Array ohne zusätzliches Blech vermessen;
+   Heading und Stationsreferenz vorher festlegen.
+2. Zehn bis zwanzig Pakete als Referenzlauf aufnehmen.
+3. Blech in markierter Position aufstellen; Abstand, Größe, Höhe und
+   Orientierung dokumentieren. Direkte Sicht zum BFT zunächst frei lassen.
+4. Weiteren Lauf mit unverändertem Heading, Gain und Antennenpositionen
+   aufnehmen; gelernte Winkelkorrektur zunächst deaktivieren.
+5. Blech entfernen und den Referenzlauf wiederholen: A–B–A.
+
+Danach eine Runde um das Array für azimutabhängige Fehler aufnehmen. Bei
+festem Blech kann eine eigene Kalibrierung mit unabhängigem Prüflauf den
+reproduzierbaren Fehler teilweise korrigieren. Bewegte oder neu positionierte
+Metallteile verändern die Bedingungen; die Software erkennt dies nicht
+automatisch. Die gemeinsame Grundfläche unter den Magnetfüßen bleibt beim
+Vergleich gleich.
+
+\newpage
+
 # Typische Fehler gezielt eingrenzen
 
 Unter **Status → Verarbeitung & Hinweise → Lokaler Empfang → Technische
@@ -577,7 +756,7 @@ aussagekräftiger als ein Screenshot des Spektrums allein.
 | Symptom | Prüfen / nächster Schritt |
 |:--|:--|
 | Kein KrakenSDR gefunden | Stromversorgung, Datenkabel und fünf Tuner prüfen. Unter Windows alle fünf aktuellen USB-Interfaces an WSL anbinden. |
-| GPS fehlt | GPS ebenfalls an WSL angebunden? Port, Rechte und Baudrate prüfen; vorübergehend korrekte manuelle Stationsposition wählen. |
+| GPS fehlt / kein Fix | GPS-Detaildialog öffnen: Port, NMEA-Daten und Satellitensignale getrennt prüfen. Unter WSL Maus ebenfalls anbinden. |
 | `delay_sync` / `controller` Exit 1 | Einzelne Prozesslogs lesen. Version 0.2.1 korrigiert einen früheren venv-Interpreterfehler; Exit 1 kann jedoch andere Ursachen haben. |
 | Ports belegt | Andere Empfängerinstanz prüfen; lokale Ports 1130/5000/5001 müssen frei sein. Vorhandenen Netzwerk-DAQ bewusst als externe Quelle nutzen. |
 | Shared Memory reicht nicht | Für die Standardkonfiguration ungefähr 292 MiB freies `/dev/shm` bereitstellen. |
@@ -598,11 +777,67 @@ Gain, Layout und Heading einzeln verändern, damit die Ursache erkennbar bleibt.
 
 \newpage
 
+# Diagnose und Aktualisierung
+
+Unter **Status → Fehlerprotokoll herunterladen** ein Diagnose-ZIP sichern.
+Es enthält Anwendungsereignisse und Tracebacks, begrenzte DAQ-Logauszüge,
+Software-/Systemversionen, Empfängereinstellungen, Verarbeitungskennzahlen
+und GPS-Verbindungs-/Satellitendaten.
+
+| Grenze / Speicherort | Umfang |
+|:--|:--|
+| Anwendungslog | `~/.krakendf/logs/application.log`; Rotation bei 512 KiB mit drei Vorgängern. |
+| DAQ-Logs | `~/.krakendf/logs/daq`. |
+| ZIP-Auszug | Maximal 256 KiB je Logdatei, insgesamt 4 MiB Logdaten plus Metadaten. |
+| Nicht im Diagnose-Snapshot | GPS-Koordinaten, rohe NMEA-Zeilen, Empfangstexte, TX-Notizen sowie IQ-/Kartenarchive. |
+
+## Port 5001 bereits belegt
+
+5001 ist der Steuerport; 5000 liefert IQ-Daten, 1130 gehört zur internen
+Steuerkette. Die Startprüfung meldet tatsächlich lauschende Prozesse.
+Eine vorhandene Backendinstanz mit **Strg+C** beenden. Unbekannte Prozesse
+werden von der Anwendung nicht automatisch beendet.
+
+Zur Identifikation in Ubuntu beziehungsweise WSL:
+
+```bash
+sudo ss -ltnp '( sport = :5000 or sport = :5001 or sport = :1130 )'
+```
+
+Prozessname, PID und Herkunft prüfen und die betreffende Instanz gezielt
+beenden. Ein Neustart kann verwaiste Prozesse beseitigen; unter WSL danach
+die USB-Zuordnung kontrollieren. Im normalen Betrieb über Strg+C beenden,
+damit die eigenen DAQ-Prozesse aufgeräumt werden.
+
+## Windows-Projekt per Git aktualisieren
+
+Backend beenden. In PowerShell im vorhandenen Git-Projektordner:
+
+```powershell
+git pull --ff-only
+.\start.cmd
+```
+
+Eine neue Softwareversion aktualisiert die WSL-Projektkopie über den
+Starthelfer. Den Browser anschließend mit **Strg+F5** neu laden.
+Bei einem bisher per ZIP bezogenen Projekt zuerst einen Git-Checkout anlegen:
+
+```powershell
+git clone https://github.com/schildtaero/krakensdr.git D:\krakensdr
+cd D:\krakensdr
+.\start.cmd
+```
+
+Alternativ die aktuelle GitHub-ZIP in einen neuen Ordner entpacken.
+Aufnahmen, lokale Konfiguration und Karten liegen außerhalb des Git-Verlaufs.
+
+\newpage
+
 # Prüfstand, Quellen und Kurzcheck
 
-Dieses Handbuch beschreibt **Software 0.2.1, Quellstand `402d917`**. Die
+Dieses Handbuch beschreibt **Software 0.2.3, Quellstand `980d850`**. Die
 Bedienabläufe wurden mit der Implementierung abgeglichen. Bestanden sind
-140 lokale Softwaretests sowie die GitHub-Prüfungen für nativen Linux-Build,
+189 lokale Softwaretests sowie die GitHub-Prüfungen für nativen Linux-Build,
 Runtime, Software, Frontend-/Shellsyntax und PowerShell-Syntax auf Windows.
 Ohne externes Referenzfixture kann der optionale LoRa-Capturetest aussetzen.
 
@@ -615,13 +850,14 @@ ihre Paketidentität stammt aus Testmetadaten und prüft keinen HF-Decoder.
 ## Vertiefung und Implementierungsquellen
 
 - [Projekt und aktueller Download](https://github.com/schildtaero/krakensdr)
-- [Softwarestand dieses Handbuchs](https://github.com/schildtaero/krakensdr/tree/402d9173c6536d74ccd63b7bdffbf98e39cf05fd)
+- [Softwarestand dieses Handbuchs](https://github.com/schildtaero/krakensdr/tree/980d8504cf1494175a8a3d3f6dc47ab05072a051)
 - [DL7CR/BFT](https://codeberg.org/DL7CR/BFT) und
   [DL7CR/SimpleSDR](https://codeberg.org/DL7CR/SimpleSDR)
 - [KrakenRF Heimdall DAQ](https://github.com/krakenrf/heimdall_daq_fw)
 - Im Projekt: `docs/antennen.md`, `docs/managed-daq.md`,
   `docs/windows-setup.md`, `docs/decoder-status.md`, `docs/maps.md`
-  und `docs/validierung.md`.
+  sowie `docs/gps-anzeige.md`, `docs/verarbeitung-und-snr.md` und
+  `docs/validierung.md`.
 - Peilmodell und Auswertung: `krakendf/dsp.py`; Empfangs-/Paketzuordnung:
   `krakendf/pipeline.py`, `krakendf/hardware.py`; Heading, GPS und
   Aufnahmeabläufe: `krakendf/service.py`; Export: `krakendf/storage.py`.

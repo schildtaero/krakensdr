@@ -16,7 +16,7 @@ python3 -m venv /tmp/krakendf-docs-venv
 ```
 
 Den letzten Befehl im Projektverzeichnis ausführen. Das Skript erstellt die
-vier PNG-Grafiken unter `docs/abbildungen/` und das PDF neu. Matplotlib,
+fünf PNG-Grafiken unter `docs/abbildungen/` und das PDF neu. Matplotlib,
 Pandoc und LaTeX werden nur für die Dokumenterstellung benötigt; zum Lesen
 des PDFs oder für den App-Betrieb sind sie nicht erforderlich. Unter einem
 nativen Windows-Python genügt dieselbe Werkzeugausstattung, für einen
