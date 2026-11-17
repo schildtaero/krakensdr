@@ -196,6 +196,7 @@ def diagnostic_snapshot(service) -> dict:
     configuration = service.config.model_dump()
     source = service.source
     daq = service.daq.status()
+    gps = service._gps_state()
     versions = {}
     for package in ("numpy", "scipy", "fastapi", "pyzmq", "numba", "scikit-rf"):
         try:
@@ -221,6 +222,16 @@ def diagnostic_snapshot(service) -> dict:
                    "dsp_fallback_reason": _redact(source.get("dsp_fallback_reason", ""), 8192),
                    "message": _redact(source.get("message", ""), 8192)},
         "performance": _numbers(source.get("performance", getattr(service, "performance", {}))),
+        "gps": {**{key: gps.get(key) for key in (
+            "model", "status", "connected", "detected", "port", "baud", "valid",
+            "bytes_received", "lines_received", "nmea_received", "invalid_sentences",
+            "data_age_s", "nmea_age_s", "fix_age_s", "connection_age_s", "satellite_age_s", "satellites_used_age_s",
+            "satellites_used", "satellites_in_view", "satellites_with_signal",
+            "fix_quality", "fix_type", "hdop", "anchor_ready", "anchor_samples", "anchor_target", "sentence_types")},
+            "message": _redact(gps.get("message", ""), 8192),
+            "satellites_detail": [{key: satellite.get(key) for key in (
+                "prn", "talker", "elevation_deg", "azimuth_deg", "cn0_dbhz", "used")}
+                for satellite in gps.get("satellites_detail", [])[:128]]},
         "daq": {key: daq.get(key) for key in
                 ("installed", "running", "state", "message", "processes", "hardware_validated")},
         "logging_error": getattr(getattr(service, "diagnostic_log", None), "last_error", None),

@@ -68,10 +68,10 @@ class DemoService:
                        "managed": daq_mode == "managed", "received_frames": 0, "dropped_frames": 0}
         runtime_dir = Path(os.environ.get("KRAKENDF_RUNTIME", Path(__file__).resolve().parent.parent / ".runtime"))
         self.daq = ManagedDAQ(runtime_dir, data_dir / "logs" / "daq")
-        self.gps = {"model": "ARCELI VK-162", "status": "not_configured", "valid": False,
-                    "latitude": None, "longitude": None, "satellites": None, "age_s": None}
+        self.gps = self._new_gps_state()
         self.gps_anchor = None
         self.gps_fixes = deque(maxlen=10)
+        self._gps_last_epoch = None
         self.events = deque(maxlen=80)
         self.observations = deque(maxlen=20000)
         self.emitters = {}
@@ -143,9 +143,71 @@ class DemoService:
         if self.gps_reader:
             await self.gps_reader.close()
             self.gps_reader = None
+        self.gps.update(connected=False, valid=False)
+        if self.gps.get("status") not in ("error", "not_found", "ambiguous", "missing_dependency", "not_configured"):
+            self.gps["status"] = "disconnected"
+
+    def _new_gps_state(self):
+        return {"model": "ARCELI VK-162", "status": "not_configured", "valid": False,
+                "port": self.config.gps_port, "baud": self.config.gps_baud,
+                "connected": False, "detected": None, "latitude": None, "longitude": None,
+                "satellites": None, "satellites_used": None, "satellites_in_view": None,
+                "satellites_with_signal": None, "satellites_detail": [],
+                "bytes_received": 0, "lines_received": 0, "nmea_received": 0,
+                "invalid_sentences": 0, "age_s": None}
+
+    def _gps_state(self, now=None):
+        """Physical GPS telemetry is independent of the chosen station source."""
+        now = time.time() if now is None else now
+        gps = dict(self.gps)
+        fixed_states = {"error", "not_found", "ambiguous", "missing_dependency", "not_configured", "disconnected", "connecting"}
+        if self.gps_reader is not None and gps.get("status") not in fixed_states:
+            gps.update(self.gps_reader.status())
+
+        def age(key, fallback=None):
+            stamp = gps.get(key)
+            if stamp is not None and math.isfinite(float(stamp)):
+                return max(0.0, now - float(stamp))
+            return gps.get(fallback) if fallback else None
+
+        gps["data_age_s"] = age("last_data_at", "data_age_s")
+        gps["nmea_age_s"] = age("last_nmea_at", "nmea_age_s")
+        gps["fix_age_s"] = age("last_fix_at", "fix_age_s")
+        gps["connection_age_s"] = age("connected_at", "connection_age_s")
+        gps["age_s"] = age("received_at", "age_seconds")
+        if gps.get("satellites_used") is None and gps.get("satellites") is not None:
+            gps["satellites_used"] = gps["satellites"]
+        gps["anchor_ready"] = self.gps_anchor is not None
+        gps["anchor_samples"] = len(self.gps_fixes)
+        gps["anchor_target"] = self.gps_fixes.maxlen
+        gps["anchor_paused"] = self.gps_anchor is None and self.recording is not None
+        gps["model"] = "ARCELI VK-162"
+        if gps.get("connected"):
+            gps["detected"] = True
+        else:
+            gps.update(satellites=None, satellites_used=None, satellites_in_view=None,
+                       satellites_with_signal=None, satellites_detail=[])
+        if gps.get("status") in fixed_states:
+            gps["valid"] = False
+        elif not gps.get("connected"):
+            gps.update(status="disconnected", valid=False, message="GPS-Port ist nicht verbunden.")
+        elif gps["data_age_s"] is None:
+            gps.update(status="waiting_data", valid=False, message="GPS-Port offen; noch keine Daten empfangen.")
+        elif gps["data_age_s"] > 5:
+            gps.update(status="stale", valid=False, message="GPS-Port offen; seit mehr als fünf Sekunden keine Daten.")
+        elif gps["nmea_age_s"] is None or gps["nmea_age_s"] > 5:
+            gps.update(status="invalid_data", valid=False, message="Daten kommen an, aber keine aktuellen gültigen NMEA-Meldungen. Baudrate und Port prüfen.")
+        elif gps.get("valid") and gps.get("age_s") is not None and gps["age_s"] < 5:
+            gps.update(status="fix", message="Gültiger GPS-Fix.")
+        elif gps.get("age_s") is not None and gps["age_s"] >= 5:
+            gps.update(status="stale", valid=False, message="NMEA-Daten kommen an; die Positionsmeldung ist veraltet.")
+        else:
+            gps.update(status="no_fix", valid=False, message="Gültige GPS-Daten empfangen; noch kein Positionsfix.")
+        return gps
 
     async def _start_gps(self):
         await self._stop_gps()
+        self.gps = self._new_gps_state()
         if not self.config.gps_port and self.config.station_mode == "gps":
             try:
                 from serial.tools import list_ports
@@ -155,13 +217,19 @@ class DemoService:
                 if len(candidates) == 1:
                     self.config = self.config.model_copy(update={"gps_port": candidates[0].device})
                     save_json(self.config_path, self.config.model_dump())
+                    self.gps.update(detected=True, port=candidates[0].device)
                     self.event(f"GPS-Maus automatisch erkannt: {candidates[0].device}")
                 else:
                     self.gps.update(status="not_found" if not candidates else "ambiguous", valid=False,
+                                    detected=bool(candidates),
                                     message="VK-162 nicht eindeutig erkannt; GPS-Port im Setup wählen.")
             except ImportError:
                 self.gps.update(status="missing_dependency", valid=False, message="USB-GPS benötigt pyserial; setup.sh ausführen.")
+            except (OSError, RuntimeError) as exc:
+                self.gps.update(status="error", valid=False, message=f"GPS-Portsuche fehlgeschlagen: {exc}")
         if self.config.gps_port:
+            self.gps.update(status="connecting", port=self.config.gps_port, baud=self.config.gps_baud,
+                            message="GPS-Port wird geöffnet …")
             self._gps_task = asyncio.create_task(self._gps_loop())
 
     async def _gps_loop(self):
@@ -169,13 +237,28 @@ class DemoService:
         self.gps_reader = reader
         try:
             await reader.connect()
+            self.gps.update(reader.status())
+            self.gps.update(status="waiting_data", message="GPS-Port offen; warte auf NMEA-Daten.")
             while True:
-                await reader.read_fix()
+                parsed = await reader.read_fix()
                 status = reader.status()
                 self.gps.update(status)
-                self.gps["status"] = "fix" if status.get("valid") else "no_fix"
-                self.gps["age_s"] = status.get("age_seconds")
-                if status.get("valid") and status.get("latitude") is not None and not self.recording:
+                self.gps["status"] = self._gps_state()["status"]
+                position = bool(parsed and parsed.get("sentence_type") in ("RMC", "GGA")
+                                and parsed.get("valid") and status.get("valid"))
+                if position and status.get("latitude") is not None and not self.recording and self.gps_anchor is None:
+                    # RMC and GGA often report the same UTC epoch. Satellite
+                    # messages, timeouts and duplicate epochs are not fixes.
+                    epoch = parsed.get("utc_time")
+                    try:
+                        epoch = float(epoch)
+                        if not math.isfinite(epoch):
+                            continue
+                    except (TypeError, ValueError, OverflowError):
+                        continue
+                    if epoch == self._gps_last_epoch:
+                        continue
+                    self._gps_last_epoch = epoch
                     self.gps_fixes.append((status["latitude"], status["longitude"]))
                     # A fixed receiver uses a short averaged anchor, never a
                     # moving course-over-ground as its antenna heading.
@@ -193,8 +276,9 @@ class DemoService:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            self.gps.update(status="error", valid=False, message=str(exc))
+            self.gps.update(status="error", connected=False, valid=False, message=str(exc))
             self.event(f"GPS: {exc}", "warning")
+            self.diagnostic_log.exception("GPS", exc)
         finally:
             await reader.close()
 
@@ -274,6 +358,8 @@ class DemoService:
         if old_mode == "live" and not self.source["managed"] and self.client and self.client.connected:
             await self.client.configure(center_frequency_hz=candidate.center_frequency_hz, gain_db=candidate.gain_db)
         gps_changed = (candidate.gps_port, candidate.gps_baud) != (self.config.gps_port, self.config.gps_baud)
+        gps_discovery_needed = (candidate.station_mode == "gps" and self.config.station_mode != "gps"
+                                and not candidate.gps_port)
         self.config = candidate
         save_json(self.config_path, candidate.model_dump())
         self.active_calibration_id = None
@@ -282,6 +368,8 @@ class DemoService:
         if gps_changed:
             self.gps_anchor = None
             self.gps_fixes.clear()
+            self._gps_last_epoch = None
+        if gps_changed or gps_discovery_needed:
             await self._start_gps()
         if old_mode in ("live", "simulation"):
             await self.set_source(old_mode)
@@ -741,13 +829,7 @@ class DemoService:
             item["age_s"] = max(0, now-row["_seen_at"])
             emitters.append(item)
         lat, lon, valid, station_mode = self.station()
-        gps = {**self.gps, "model": "ARCELI VK-162", "station_valid": valid, "station_source": station_mode}
-        if gps.get("received_at"):
-            gps["age_s"] = max(0, now-gps["received_at"])
-            if gps["age_s"] > 5 and gps["status"] == "fix":
-                gps.update(status="stale", valid=False)
-        if self.source["mode"] == "simulation" and not self.config.gps_port:
-            gps.update(status="simulation", latitude=lat, longitude=lon, simulated=True)
+        gps = {**self._gps_state(now), "station_valid": valid, "station_source": station_mode}
         return clean({"timestamp": utcnow(), "source": self.source, "gps": gps,
                       "station": {"latitude": lat, "longitude": lon, "valid": valid, "source": station_mode, "heading_deg": self.config.heading_deg},
                       "config": self.effective_config(), "profile_id": self.config.profile_id,

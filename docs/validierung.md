@@ -1,4 +1,16 @@
-# Prüfung der Implementierung 0.2.2
+# Prüfung der Implementierung 0.2.3
+
+Stand: 17. November 2026. **189 automatisierte Tests bestanden** in 11,9 Sekunden.
+Zusätzlich zum vorherigen Stand sind geprüft:
+
+- 15 GPS-Telemetrietests: prüfsummengültige RMC/GGA/GSA/GSV, mehrteilige vollständige Satellitenzyklen, C/N0, gemeldete Nullwerte und unbekannte Angaben, mehrere Signalbänder/GNSS-Systeme, unabhängiges Altern von Position und Satellitendaten, Datenzähler und Fehlerfälle. Konstellationsbezogener Fixverlust verwirft keine weiterhin gültige kombinierte Position eines anderen Systems.
+- Sieben GPS-Serviceprüfungen: Portöffnung, Daten ohne gültiges NMEA, Satelliten ohne Fix, veraltete Daten, Port-/Lesefehler, zehn verschiedene UTC-Fixepochen mit RMC/GGA-Deduplizierung, automatische Suche beim Wechsel von manuell auf GPS sowie GPS-Diagnose ohne Koordinaten.
+- API-Neuverbindung mit unveränderter RF-Konfiguration und erhaltenem Stationsanker; Neuverbindung während Aufnahme oder Replay wird abgewiesen.
+- JavaScript-/Python-/Shellsyntax, DOM-Verweise und ein Node-Renderharness für unbekannte/Null-Satellitenwerte, Fix/kein Fix/veraltete Daten, manuelle/Simulation-/Replay-Referenz, unterbrochene Backend-Verbindung und gesperrte Neuverbindung.
+
+Ein interaktiver Browserlauf und die physische VK-162-/Windows-/WSL-Abnahme wurden nicht durchgeführt. Die Anzeige wertet die tatsächlich vom Empfänger gemeldeten NMEA-Felder aus; fehlen GSV-Angaben, bleiben Sichtfeld und C/N0 unbekannt. Bestehende DF-, Decoder-, Aufnahme-/Replay- und Performanceregressionen bestehen weiterhin. Bedienung und Feldbedeutung: [GPS-Anzeige](gps-anzeige.md).
+
+## Vorheriger Prüfstand 0.2.2
 
 Stand: 16. November 2026. **166 automatisierte Tests bestanden** in 14,6 Sekunden.
 Die vollständige Suite umfasst zusätzlich zu den unten dokumentierten 0.2.1-Prüfungen:

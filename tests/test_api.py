@@ -106,6 +106,30 @@ class APIIntegrationTests(unittest.TestCase):
         self.assertEqual(self.ok(self.client.get("/api/config"))["channels"][1]["frequency_hz"], 434200000)
         self.assertEqual(self.client.post("/api/source", json={"mode": "invented"}).status_code, 400)
 
+    def test_gps_reconnect_keeps_station_reference_and_rf_configuration(self):
+        self.service.gps_anchor = (52.123, 13.456)
+        before = self.service.config.model_dump()
+        with patch.object(self.service, "_start_gps", new_callable=AsyncMock) as restart, \
+             patch.object(self.service, "_stop_source", new_callable=AsyncMock) as stop_rf:
+            result = self.ok(self.client.post("/api/gps/reconnect", json={}))
+            restart.assert_awaited_once()
+            stop_rf.assert_not_awaited()
+        self.assertTrue(result["gps"]["anchor_ready"])
+        self.assertEqual(self.service.gps_anchor, (52.123, 13.456))
+        self.assertEqual(self.service.config.model_dump(), before)
+        self.assertEqual(result["source"]["mode"], "idle")
+        with patch.object(self.service, "_start_gps", new_callable=AsyncMock) as restart:
+            try:
+                self.service.recording = {"id": "active"}
+                self.assertEqual(self.client.post("/api/gps/reconnect", json={}).status_code, 400)
+                self.service.recording = None
+                self.service.replay = {"session_id": "recorded"}
+                self.assertEqual(self.client.post("/api/gps/reconnect", json={}).status_code, 400)
+                restart.assert_not_awaited()
+            finally:
+                self.service.recording = None
+                self.service.replay = None
+
     def test_manual_position_and_heading_alignment_use_known_reference(self):
         state = self.manual_position()
         self.assertTrue(state["station"]["valid"])

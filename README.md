@@ -1,10 +1,10 @@
-# KrakenDF Demo 0.2.2
+# KrakenDF Demo 0.2.3
 
 Lokales Webinterface für einen feststehenden KrakenSDR, eine ARCELI VK-162 GPS-Maus und DL7CR/BFT-Tracker auf LilyGO T-Deck 433. Dieselben POCSAG-/LoRa-Positionspakete werden decodiert und mit fünf kohärenten Antennen gepeilt. Emitter werden anhand des alphanumerischen Rufzeichens zugeordnet.
 
 **Der vollständige lokale Kraken-Stack ist eingebunden; Live ist der Standard.** Das Repository enthält die fest versionierten Heimdall-/Kraken-Treiberquellen, Buildanpassungen und Erststart-Skripte. Die Anwendung übernimmt deren Konfiguration und Prozessverwaltung. Physische Kraken-/433-MHz-/VK-162-Abnahme steht weiterhin aus.
 
-Zentrales Repository: **https://github.com/schildtaero/krakensdr**. Version 0.2.2 ergänzt die Profile **Pegasus 95** und **Pentagon 105**, Paket-SNR im Tracking und Excel, herunterladbare Diagnoseprotokolle und eine beschleunigte Empfangsverarbeitung. Die Korrekturen des venv-Interpreterpfads, Karten-Symboleditors und der USB-Installationsdiagnose aus 0.2.1 bleiben enthalten.
+Zentrales Repository: **https://github.com/schildtaero/krakensdr**. Version 0.2.3 zeigt GPS-Verbindung, NMEA-Datenfluss, Satellitensignale und Positionsfix getrennt an, ergänzt einen GPS-Detaildialog und eine Neuverbindung. Die Profile **Pegasus 95** und **Pentagon 105**, Paket-SNR, Diagnose-ZIP und beschleunigte Empfangsverarbeitung aus 0.2.2 bleiben enthalten.
 
 ## Schnellstart
 
@@ -63,7 +63,8 @@ Standardmäßig bindet die Anwendung nur an localhost. Die zweite Variante dient
 - **Paket-SNR im Tracking:** geschätztes Signal-/Rauschleistungsverhältnis im jeweiligen RF-Kanal, auch für negative dB-Werte. Ohne geeignete Rauschreferenz steht „—“. Verfahren und Rohleistungen werden mit der Aufnahme gespeichert; die Simulation kennzeichnet ihren bekannten synthetischen Rauschpegel gesondert.
 - **Status und Fehlerprotokoll:** Download eines Diagnose-ZIPs mit Ereignis-/Fehlerlog, Tracebacks, begrenzten DAQ-Logauszügen und Verarbeitungskennzahlen. Im Statusdialog stehen RF-/Decoderwarteschlangen, Pipelinezeit im Verhältnis zur RF-Dauer und der verwendete DSP-Pfad.
 - **Heading:** manuell oder Abgleich an einem bekannten, frisch empfangenen BFT mit gültiger Position.
-- **Stationsposition:** manuell oder GPS. Der stationäre GPS-Standort wird über zehn gültige Fixmeldungen gemittelt und anschließend fixiert. GPS-Kurs über Grund wird nicht als Array-Heading benutzt.
+- **Stationsposition:** manuell oder GPS. Der stationäre GPS-Standort wird über zehn zeitlich verschiedene gültige Fixmeldungen gemittelt und anschließend fixiert. GPS-Kurs über Grund wird nicht als Array-Heading benutzt.
+- **GPS-Status:** Verbindung, Datenfluss und Fix getrennt; Satelliten mit gemeldetem Signal, im Sichtfeld und im Fix auch ohne Positionsfix sichtbar. Klick auf die GPS-Kachel öffnet Port/Baudrate, Datenalter, C/N0-Balken je Satellit, HDOP, Ankerfortschritt und „GPS neu verbinden“. Fehlende Werte bleiben „—“ und veraltete Daten werden kenntlich gemacht.
 - **Record/Replay:** Messwerte, Profile, Qualitätsflags, Spektrum und kohärente Fünfkanal-IQ-Ausschnitte je zugeordnetem Paket; erneute MUSIC-Auswertung beim Replay.
 - **Kalibrierung:** periodische Winkelkorrektur, Azimutabdeckung und unabhängiger Prüflauf. Ungeprüfte oder verschlechternde Modelle können nicht aktiviert werden.
 - **Excel:** `.xlsx` mit Einzelmessungen, Gesamt-RMS, RMS nach Referenzazimut, Profilen und Kalibrierbefunden. Empfangstexte werden als Text und nicht als Excel-Formeln exportiert.
@@ -97,7 +98,9 @@ Die gebündelte native Stufe ist absichtlich auf **Dezimierung 1 und FIR-Länge 
 
 USB-GPS-Unterstützung wird mit installiert. Eine eindeutig erkannte VK-162/u-blox-GPS-Maus wird automatisch ausgewählt. Alternativ im Setup **GPS-Ports suchen** verwenden oder den Port eintragen, unter Linux häufig `/dev/ttyACM0` oder `/dev/ttyUSB0`, beim nativen Windows-Client `COM3` o.ä. Einstieg mit **9600 Baud**, bei abweichender Geräteinstellung anpassen. Unter WSL muss auch die Maus an Linux durchgereicht sein. Das konkrete Exemplar und seine Baudrate wurden hier nicht verifiziert.
 
-NMEA-RMC und -GGA werden mit Prüfsumme ausgewertet. `GET /api/gps/ports` zeigt erkannte Ports, wenn pyserial installiert ist. Unter Linux benötigt der ausführende Benutzer Zugriff auf den seriellen Port. NMEA-Zeitstempel liefern keinen PPS-synchronisierten RF-Sampletakt; die Paket-/DF-Zuordnung erfolgt über IQ-Sampleindizes.
+NMEA-RMC/GGA liefern Position und Fix, GSA/GSV ergänzen Fixart und Satelliten-/Signalangaben. Alle Meldungen werden auf Prüfsumme geprüft; Satellitendaten verjüngen keinen alten Positionsfix. RMC und GGA derselben UTC-Epoche zählen für die Standortmittelung gemeinsam als ein Fix. `GET /api/gps/ports` zeigt erkannte Ports, wenn pyserial installiert ist. Unter Linux benötigt der ausführende Benutzer Zugriff auf den seriellen Port. NMEA-Zeitstempel liefern keinen PPS-synchronisierten RF-Sampletakt; die Paket-/DF-Zuordnung erfolgt über IQ-Sampleindizes.
+
+Die GPS-Kachel zeigt die tatsächliche Hardwaretelemetrie unabhängig von manueller, simulierter oder aufgezeichneter Stationsreferenz. **„Port offen“**, **„gültige NMEA-Daten“**, **„Signal gemeldet“** und **„Positionsfix“** sind verschiedene Zustände. Ein bereits fixierter stationärer GPS-Anker bleibt bei einem späteren Empfangsausfall erhalten. **GPS neu verbinden** erhält diesen Anker und lässt die RF-Quelle unverändert; Aufnahme oder Replay vorher beenden. Beschreibung aller Zustände und Satellitenzahlen: [GPS-Anzeige](docs/gps-anzeige.md).
 
 ## Verarbeitung bei 2,4 MS/s und Fehlerdiagnose
 
@@ -142,6 +145,7 @@ LoRa bleibt als **experimentell / Hardwareabnahme offen** gekennzeichnet. Die re
 - [Offlinekarten und MBTiles](docs/maps.md)
 - [Prüfstand](docs/validierung.md)
 - [Verarbeitung, SNR und Diagnose](docs/verarbeitung-und-snr.md)
+- [GPS-Verbindung, Satelliten und Fix](docs/gps-anzeige.md)
 - [Drittbibliotheken](THIRD_PARTY.md)
 
 OpenAPI-Dokumentation läuft lokal unter `/docs`. Externe SimpleSDR-/Kraken-Quellcodeverzeichnisse sind zur Laufzeit nicht erforderlich.
@@ -150,6 +154,6 @@ OpenAPI-Dokumentation läuft lokal unter `/docs`. Externe SimpleSDR-/Kraken-Quel
 
 Backend mit Strg+C beenden, im Git-Checkout `git pull --ff-only` ausführen und erneut `start.cmd` beziehungsweise `./start.sh` starten. Unter Windows aktualisiert eine neue Projektversion die WSL-Kopie über den vorhandenen Starthelfer. Keine WSL-Abschaltung nötig; USB-Durchreichung bleibt so erhalten. Nach Änderungen an der Oberfläche die Seite mit Strg+F5 neu laden.
 
-Alternativ die [aktuelle ZIP-Datei von GitHub](https://github.com/schildtaero/krakensdr/archive/refs/heads/main.zip) in einen neuen Ordner entpacken und dort `start.cmd` bzw. `./start.sh` ausführen. Die neue Paketversion 0.2.2 löst bei einer vorhandenen Windows-Installation die Aktualisierung der Linux-Projektkopie aus. Danach unter **Setup → Antennenprofil** ausdrücklich Pegasus 95 oder Pentagon 105 auswählen; gespeicherte alte Profile werden nicht still ersetzt.
+Alternativ die [aktuelle ZIP-Datei von GitHub](https://github.com/schildtaero/krakensdr/archive/refs/heads/main.zip) in einen neuen Ordner entpacken und dort `start.cmd` bzw. `./start.sh` ausführen. Die neue Paketversion 0.2.3 löst bei einer vorhandenen Windows-Installation die Aktualisierung der Linux-Projektkopie aus. Danach unter **Setup → Antennenprofil** ausdrücklich Pegasus 95 oder Pentagon 105 auswählen; gespeicherte alte Profile werden nicht still ersetzt.
 
 Eigene Änderungen vor dem Pull mit `git status` prüfen und sichern. Aufnahmen, `.runtime`, `.venv`, lokale Karten und Konfigurationen werden nicht über Git synchronisiert. Nach neuen abgeschlossenen Änderungen wird der geprüfte Quellcode in dieses Repository übertragen.

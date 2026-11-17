@@ -26,6 +26,7 @@
   let socket = null, reconnectTimer = null, pollingTimer = null, requestInFlight = false;
   let lastStateAt = 0, hasConnected = false, mapReady = false;
   let waterfallRows = [], lastSpectrumKey = '', lastSessionKey = '', lastModelsKey = '';
+  let gpsReconnectPending = false;
 
   function toast(message, error = false) {
     const node=document.createElement('div'); node.className=`toast${error?' error':''}`;
@@ -95,7 +96,7 @@
     else if(Array.isArray(next.arrays?.presets))presets=next.arrays.presets;
     const emitters=Array.isArray(state.emitters)?state.emitters:[];
     if(!selectedCallsign || !emitters.some(emitter=>emitter.callsign===selectedCallsign))selectedCallsign=emitters[0]?.callsign||null;
-    renderStatus();renderTracks();renderMetrics();renderCoverage();renderChannels();renderDiagnostics();
+    renderStatus();renderTracks();renderMetrics();renderCoverage();renderChannels();renderDiagnostics();renderGPS();
     if($('#sessions-dialog').open)renderSessions();
     if($('#calibration-dialog').open)renderCalibration();
     drawAll();updateMap();renderSourceRuntime();
@@ -161,6 +162,103 @@
     finally{button.disabled=false;}
   }
 
+  function gpsAge(gps, key, timestamp) {
+    const elapsed=lastStateAt?Math.max(0,(Date.now()-lastStateAt)/1000):0;
+    if(finite(gps[key]))return Math.max(0,Number(gps[key])+elapsed);
+    if(finite(gps[timestamp]))return Math.max(0,Date.now()/1000-Number(gps[timestamp]));
+    return null;
+  }
+
+  function gpsPresentation(gps={}) {
+    const dataAge=gpsAge(gps,'data_age_s','last_data_at'),nmeaAge=gpsAge(gps,'nmea_age_s','last_nmea_at'),fixAge=gpsAge(gps,'fix_age_s','last_fix_at');
+    const status=String(gps.status||'not_configured');
+    const satelliteAge=gpsAge(gps,'satellite_age_s','last_satellite_at');
+    const usedAge=gpsAge(gps,'satellites_used_age_s','last_satellites_used_at');
+    const freshSat=satelliteAge===null||satelliteAge<=10,freshUsed=usedAge===null||usedAge<=10;
+    const messages={not_configured:'GPS nicht eingerichtet',not_found:'GPS-Maus nicht gefunden',ambiguous:'Mehrere GPS-Geräte · Port wählen',missing_dependency:'GPS-Unterstützung fehlt',connecting:'GPS-Port wird geöffnet',error:'GPS-Verbindungsfehler',disconnected:'GPS-Verbindung getrennt'};
+    let label=messages[status],tone=status==='error'||status==='disconnected'?'red':'amber';
+    if(!label){
+      if(gps.connected!==true){label=gps.detected===true?'GPS erkannt · Port nicht geöffnet':'GPS nicht verbunden';}
+      else if(status==='invalid_data'&&dataAge!==null&&dataAge<=5){label='Daten empfangen · kein gültiges NMEA';}
+      else if(status==='stale'||(nmeaAge!==null&&nmeaAge>5)||(dataAge!==null&&dataAge>5)){label='GPS-Daten veraltet';}
+      else if(gps.valid===true&&(fixAge===null||fixAge<=5)){
+        label=Number(gps.fix_type)===3?'GPS-Fix · 3D':Number(gps.fix_type)===2?'GPS-Fix · 2D':'GPS-Fix gültig';tone='green';
+      }else if(status==='invalid_data'||((Number(gps.bytes_received)>0||dataAge!==null)&&!Number(gps.nmea_received)&&nmeaAge===null)){
+        label='Daten empfangen · kein gültiges NMEA';
+      }else if(status==='waiting_data'||(!Number(gps.bytes_received)&&dataAge===null&&nmeaAge===null)){
+        label='GPS verbunden · noch keine Daten';
+      }else if(freshSat&&finite(gps.satellites_with_signal)&&Number(gps.satellites_with_signal)>0){label='Satellitensignal · noch kein Fix';}
+      else if(freshSat&&gps.satellites_with_signal===0){label='NMEA aktiv · kein Signal gemeldet';}
+      else{label='NMEA aktiv · noch kein Fix';}
+    }
+
+    const count=value=>finite(value)&&value!==''?Number(value):null;
+    return {label,tone,dataAge,nmeaAge,fixAge,satelliteAge,usedAge,freshSat,
+      used:freshUsed?count(gps.satellites_used??gps.satellites):null,
+      inView:freshSat?count(gps.satellites_in_view):null,
+      withSignal:freshSat?count(gps.satellites_with_signal):null};
+  }
+
+  function gpsReference() {
+    const source=state?.source||{},gps=state?.gps||{},station=state?.station||{},config=state?.config||{};
+    if(source.mode==='replay'||state?.replay)return {label:'Station: aufgezeichnete Position',description:'Die Stationsreferenz stammt aus der Aufnahme. GPS-Hardware wird unten unabhängig davon angezeigt.'};
+    if(source.mode==='simulation'||source.simulated)return {label:'Station: Simulationsreferenz',description:'Die Stationsreferenz ist simuliert. Die GPS-Anzeige beschreibt ausschließlich tatsächlich gemeldete Hardwaredaten.'};
+    if(config.station_mode==='manual'||station.source==='manual')return {label:'Station: manuelle Position',description:'Die manuell eingetragene Position wird für die Peilreferenz verwendet; der GPS-Empfang wird unabhängig davon angezeigt.'};
+    if(gps.anchor_ready)return {label:'Station: GPS-Anker fixiert',description:'Der aus zehn gültigen Meldungen gemittelte Stationsstandort bleibt für das feste Array gespeichert, auch wenn der aktuelle GPS-Empfang ausfällt.'};
+    const samples=finite(gps.anchor_samples)?Number(gps.anchor_samples):0,target=finite(gps.anchor_target)?Number(gps.anchor_target):10;
+    return {label:`Station: GPS-Anker ${number(samples,0)} / ${number(target,0)}`,description:gps.anchor_paused||state?.recording?'Die Stationsmittelung ist während einer Aufnahme angehalten. Für den ersten GPS-Anker die Aufnahme beenden.':'Vor der Messung zehn gültige Positionsmeldungen zum Mitteln des festen Stationsstandorts abwarten.'};
+  }
+
+  function renderGPSHealth() {
+    if(!state)return;
+    const gps=state.gps||{},view=gpsPresentation(gps),reference=gpsReference();
+    $('#gps-status').textContent=view.label;
+    $('#gps-health').dataset.tone=view.tone;
+    $('#gps-satellites').textContent=`Signal ${number(view.withSignal,0)} · Sichtfeld ${number(view.inView,0)} · Fix ${number(view.used,0)}`;
+    $('#gps-satellites').title='Signal: mit gemeldetem C/N0 > 0. Sichtfeld: vom Empfänger gemeldet. Fix: für die Position verwendete Satelliten. — bedeutet unbekannt oder veraltet.';
+    $('#gps-reference').textContent=reference.label;
+    $('#gps-extra').textContent=view.nmeaAge===null?'Details öffnen':`NMEA ${number(view.nmeaAge,0)} s`;
+  }
+
+  function renderGPS() {
+    const dialog=$('#gps-dialog');if(!state||!dialog?.open)return;
+    const gps=state.gps||{},config=state.config||{},station=state.station||{},view=gpsPresentation(gps),reference=gpsReference();
+    const reconnectBlocked=Boolean(state.recording||state.replay||state.source?.mode==='replay');
+    $('#gps-reconnect').disabled=gpsReconnectPending||reconnectBlocked;
+    $('#gps-reconnect').title=reconnectBlocked?'Aufnahme oder Replay zuerst beenden':'GPS-Port neu öffnen und bei leerem Port automatisch erkennen';
+    const age=value=>value===null?'Noch keine':value<1?'vor < 1 s':`vor ${number(value,1)} s`;
+    const tile=(label,value,title='')=>`<div class="gps-metric"${title?` title="${esc(title)}"`:''}><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`;
+    $('#gps-dialog-status').textContent=view.label;
+    $('#gps-dialog-status').dataset.tone=view.tone;
+    $('#gps-connection-summary').innerHTML=tile('GERÄT',gps.connected===true?'Port erreichbar':gps.detected===true?'Erkannt':gps.detected===false?'Nicht gefunden':'Nicht geprüft')
+      +tile('SERIELLE VERBINDUNG',gps.connected===true?'Port geöffnet':gps.status==='connecting'?'Wird geöffnet':'Nicht verbunden')
+      +tile('PORT / BAUD',`${gps.port||config.gps_port||'Automatische Erkennung'} · ${number(gps.baud??config.gps_baud,0)} Baud`)
+      +tile('GÜLTIGE NMEA-DATEN',age(view.nmeaAge));
+    $('#gps-satellite-summary').innerHTML=tile('MIT SIGNAL',number(view.withSignal,0),'Satelliten mit gemeldetem C/N0 > 0; noch kein Beweis eines Positionsfixes.')
+      +tile('IM SICHTFELD GEMELDET',number(view.inView,0),'Anzahl aus vollständigen GSV-Meldungen des Empfängers.')
+      +tile('FÜR POSITION VERWENDET',number(view.used,0),'Satellitenzahl aus GGA/GSA; kann vor einem Fix bereits 0 sein.')
+      +tile('POSITION / HDOP',`${view.tone==='green'?'Gültiger Fix':'Kein aktueller Fix'} · ${finite(gps.hdop)?number(gps.hdop,1):'—'}`,'HDOP beschreibt die Satellitengeometrie und ist keine Genauigkeit in Metern.');
+    const backendStale=lastStateAt&&Date.now()-lastStateAt>8000;
+    $('#gps-message').textContent=backendStale?'Keine aktuelle Backend-Verbindung. Die Anzeige zeigt den letzten bekannten GPS-Stand.':gps.message||gps.reason||(gps.connected===true&&view.nmeaAge===null?'Der Port ist geöffnet. Ohne gültige NMEA-Meldungen sind Baudrate und GPS-Port zu prüfen.':'Sichtfeld und Signal werden unabhängig vom Positionsfix angezeigt. Nicht gemeldete oder veraltete Werte bleiben „—“.');
+    $('#gps-message').classList.toggle('warning',Boolean(backendStale||gps.status==='error'||gps.status==='invalid_data'));
+    $('#gps-reference-detail').textContent=reference.description;
+    $('#gps-anchor-label').textContent=reference.label;
+    const samples=finite(gps.anchor_samples)?Number(gps.anchor_samples):0,target=Math.max(1,finite(gps.anchor_target)?Number(gps.anchor_target):10);
+    $('#gps-anchor-progress').max=target;$('#gps-anchor-progress').value=gps.anchor_ready?target:Math.min(samples,target);
+    $('#gps-anchor-progress').hidden=config.station_mode!=='gps'||state.source?.mode==='replay'||state.source?.mode==='simulation';
+    $('#gps-station-coordinates').textContent=station.valid&&finite(station.latitude)&&finite(station.longitude)?`${number(station.latitude,6)}° / ${number(station.longitude,6)}°`:'Noch keine gültige Stationsreferenz';
+    const rows=view.freshSat&&Array.isArray(gps.satellites_detail)?gps.satellites_detail.slice(0,128):[];
+    $('#gps-satellite-age').textContent=view.satelliteAge===null?'Noch keine vollständige GSV-Meldung':`Satellitendaten ${age(view.satelliteAge)}${view.freshSat?'':' · veraltet'}`;
+    $('#gps-satellite-list').innerHTML=rows.length?rows.map(row=>{
+      const cn0=finite(row.cn0_dbhz)&&row.cn0_dbhz!==''?Number(row.cn0_dbhz):null;
+      const width=cn0===null?0:Math.max(0,Math.min(100,cn0/55*100));
+      return `<div class="gps-satellite-row"><span class="gps-prn">${esc(row.talker||'GN')} ${esc(row.prn??'—')}</span><span class="gps-signal"><span class="gps-signal-track"><i style="width:${width}%"></i></span><b>${cn0===null?'—':number(cn0,0)}</b></span><span>${angle(row.elevation_deg,0)}</span><span>${angle(row.azimuth_deg,0)}</span></div>`;
+    }).join(''):'<div class="empty-state compact">Noch keine aktuellen Satellitendetails.<br>GSV-Meldungen können je nach Empfängerkonfiguration fehlen.</div>';
+    $('#gps-data-details').innerHTML=tile('LETZTE DATEN',age(view.dataAge))+tile('LETZTER GÜLTIGER FIX',age(view.fixAge))
+      +tile('BYTES / ZEILEN',`${number(gps.bytes_received,0)} / ${number(gps.lines_received,0)}`)
+      +tile('GÜLTIGE NMEA-MELDUNGEN',number(gps.nmea_received,0));
+  }
+
   function renderStatus() {
     const source=state.source||{}, config=state.config||{}, gps=state.gps||{},daq=state.daq||{};
     const mode=source.mode||'idle', simulation=source.simulated||mode==='simulation', replay=mode==='replay'||Boolean(state.replay);
@@ -177,11 +275,7 @@
     else text.textContent=source.message||'STANDBY · Datenquelle wählen oder eine gespeicherte Aufnahme wiedergeben.';
     $('#plot-mode').textContent=replay?'REPLAY':simulation?'SIMULIERTE IQ-DATEN':mode==='live'?'LIVE-EMPFANG':'STANDBY';
     $('#plot-heading').textContent=angle(config.heading_deg);
-    const gpsManual=config.station_mode==='manual';
-    if(simulation) {$('#gps-status').textContent='Simulierte Referenzposition';$('#gps-extra').textContent=`${number(config.station_latitude,4)} / ${number(config.station_longitude,4)}`;}
-    else if(gpsManual) {$('#gps-status').textContent='Manuelle Stationsposition';$('#gps-extra').textContent=`${number(config.station_latitude,4)} / ${number(config.station_longitude,4)}`;}
-    else if(['fix','ready','valid','connected'].includes(gps.status) && finite(gps.latitude)&&finite(gps.longitude)) {$('#gps-status').textContent=`GPS · ${number(gps.latitude,4)} / ${number(gps.longitude,4)}`;$('#gps-extra').textContent=`${gps.satellites??'—'} SAT · ${number(gps.age_s,0)} s`;}
-    else {$('#gps-status').textContent=gps.status==='error'?'GPS nicht verfügbar':'GPS · warte auf gültigen Fix';$('#gps-extra').textContent='Keine GPS-Referenz';}
+    renderGPSHealth();
     $('#coherence-status').textContent=simulation?'Simulation · 5 kohärente Kanäle':receiverError?'Empfang prüfen':mode==='live'?(source.status==='calibrating'?'Kanäle werden kalibriert':receiverReady?'5 Kanäle · synchronisiert':source.coherent===false?'Warte auf Synchronisation':source.status==='mismatch'?'Empfangsprofil wird abgeglichen':source.managed!==false?receiverStageLabel(daq):'Externer Empfänger · verbinden'):replay?'Aufgezeichnete Empfangskette':'Empfang in Standby';
     $('#frame-count').textContent=`${number(source.received_frames||0,0)} Frames`;
     const preset=presets.find(item=>item.id===config.array_id);
@@ -426,6 +520,7 @@
     if(id==='source-dialog')renderSourceRuntime();
     if(id==='config-dialog')requestAnimationFrame(drawArray);
     if(id==='diagnostics-dialog')renderDiagnostics();
+    if(id==='gps-dialog')renderGPS();
   }
 
   function channelField(channel={}) {
@@ -477,6 +572,8 @@
     $('#add-channel').addEventListener('click',()=>$('#channel-fields').append(channelField({frequency_hz:state?.config?.center_frequency_hz,modulation:'pocsag',bandwidth_hz:25000})));
     $('#array-select').addEventListener('change',drawArray);
     $('#discover-gps-ports').addEventListener('click',discoverGPSPorts);
+    $('#gps-open-setup').addEventListener('click',()=>{$('#gps-dialog').close();openDialog('config-dialog');});
+    $('#gps-reconnect').addEventListener('click',async()=>{if(gpsReconnectPending||state?.recording||state?.replay||state?.source?.mode==='replay')return;const button=$('#gps-reconnect');gpsReconnectPending=true;button.disabled=true;try{await action('/api/gps/reconnect',{},'POST','GPS-Verbindung wird neu aufgebaut.');}catch(_){}finally{gpsReconnectPending=false;button.disabled=Boolean(state?.recording||state?.replay||state?.source?.mode==='replay');}});
     $('#config-form').addEventListener('submit',event=>{event.preventDefault();submit(event.target,async()=>{const form=new FormData(event.target);const channels=$$('.channel-field',event.target).map(row=>({id:row.dataset.id,enabled:$('[name="channel_enabled"]',row).checked,modulation:$('[name="channel_modulation"]',row).value,frequency_hz:Math.round(Number($('[name="channel_frequency_mhz"]',row).value)*1e6),bandwidth_hz:Math.round(Number($('[name="channel_bandwidth_khz"]',row).value)*1000),lora_sf:Number($('[name="channel_lora_sf"]',row).value),lora_bandwidth_hz:Number($('[name="channel_lora_bandwidth_khz"]',row).value)*1000}));const config={center_frequency_hz:Math.round(Number(form.get('center_frequency_mhz'))*1e6),sample_rate_hz:Math.round(Number(form.get('sample_rate_msps'))*1e6),gain_db:Number(form.get('gain_db')),fft_size:Number(form.get('fft_size')),array_id:form.get('array_id'),heading_deg:Number(form.get('heading_deg')),station_latitude:Number(form.get('station_latitude')),station_longitude:Number(form.get('station_longitude')),station_mode:form.get('station_mode'),gps_port:form.get('gps_port')||'',gps_baud:Number(form.get('gps_baud')),tx_notes:form.get('tx_notes')||'',channels};await action('/api/config',config,'PATCH','Empfangsprofil gespeichert.');$('#config-dialog').close();waterfallRows=[];});});
     $('#reconnect-button').addEventListener('click',()=>{refresh();connectSocket();});
     let resizeTimer;window.addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(()=>{drawAll();if(bearingView==='map')window.KrakenMap?.invalidateSize();},80);});
@@ -493,7 +590,7 @@
     let theme='dark';try{theme=localStorage.getItem('krakendf-theme')||'dark';}catch(_){}
     setTheme(theme==='light'?'light':'dark');setupListeners();
     $('#utc-clock').textContent=`${utcTime()} UTC`;
-    setInterval(()=>{$('#utc-clock').textContent=`${utcTime()} UTC`;if(lastStateAt&&Date.now()-lastStateAt>8000)setOnline(false);},1000);
+    setInterval(()=>{$('#utc-clock').textContent=`${utcTime()} UTC`;if(lastStateAt&&Date.now()-lastStateAt>8000)setOnline(false);if(state){renderGPSHealth();renderGPS();}},1000);
     try {const result=await api('/api/arrays');presets=Array.isArray(result)?result:result.presets||[];}catch(_){}
     await refresh();connectSocket();
     pollingTimer=setInterval(()=>{if(!socket||socket.readyState!==WebSocket.OPEN||Date.now()-lastStateAt>3500)refresh();},2500);

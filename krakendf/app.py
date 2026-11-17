@@ -153,6 +153,15 @@ def create_app(data_dir: Path | str | None = None, initial_mode: str | None = No
             await service.set_source(request.mode, request.host, request.port, request.managed)
             return service.snapshot()
 
+    @app.post("/api/gps/reconnect")
+    async def gps_reconnect():
+        async with service.control:
+            if service.recording or service.replay:
+                raise ValueError("Vor dem Neuverbinden von GPS die Aufnahme oder das Replay beenden.")
+            await service._start_gps()
+            service.event("GPS-Verbindung neu gestartet; feste Stationsreferenz bleibt erhalten.")
+            return service.snapshot()
+
     @app.post("/api/heading")
     async def heading(request: HeadingRequest):
         async with service.control:

@@ -274,17 +274,13 @@ def _coordinate(value: str, hemisphere: str, latitude: bool) -> float:
     return -result if hemisphere in ("S", "W") else result
 
 
-def parse_nmea(sentence: str) -> dict[str, Any] | None:
-    """Parse checked RMC/GGA sentences; invalid fixes remain explicit events.
-
-    ``received_at`` is this process's receipt time. ``age_seconds`` from a GPS
-    receiver is not present in NMEA; callers must age the fix after receipt.
-    """
+def _nmea_fields(sentence: str) -> list[str] | None:
+    """Return fields only for bounded ASCII NMEA with a valid checksum."""
     text = sentence.strip()
-    if not text.startswith("$") or "*" not in text:
+    if len(text) > 1024 or not text.startswith("$") or "*" not in text:
         return None
     body, checksum_text = text[1:].rsplit("*", 1)
-    if len(checksum_text) != 2:
+    if len(checksum_text) != 2 or any(ord(char) > 127 for char in body):
         return None
     checksum = 0
     for char in body:
@@ -292,46 +288,138 @@ def parse_nmea(sentence: str) -> dict[str, Any] | None:
     try:
         if checksum != int(checksum_text, 16):
             return None
-        fields = body.split(",")
-        kind = fields[0][-3:]
-        result: dict[str, Any] = {"sentence_type": kind, "received_at": time.time(),
-                                  "utc_time": fields[1], "valid": False,
-                                  "source": "nmea_serial"}
+    except ValueError:
+        return None
+    fields = body.split(",")
+    # Proprietary messages also demonstrate a working NMEA data stream, but
+    # are not interpreted as receiver position or satellite measurements.
+    name = fields[0]
+    if not 3 <= len(name) <= 10 or not name.isalnum() or name.upper() != name:
+        return None
+    return fields
+
+
+def _nmea_number(value: str, minimum: float, maximum: float) -> float | None:
+    if value == "":
+        return None
+    number = float(value)
+    if not math.isfinite(number) or not minimum <= number <= maximum:
+        raise ValueError("NMEA number outside supported range")
+    return number
+
+
+def parse_nmea(sentence: str) -> dict[str, Any] | None:
+    """Parse checksummed RMC/GGA position and GSA/GSV satellite telemetry.
+
+    Only RMC/GGA contain a ``valid`` position flag. Supplementary messages
+    must neither establish a position nor refresh its receipt timestamp.
+    """
+    fields = _nmea_fields(sentence)
+    if fields is None:
+        return None
+    try:
+        name = fields[0]
+        kind, talker = name[-3:], name[:-3]
+        if len(talker) != 2:
+            return None
+        result: dict[str, Any] = {"sentence_type": kind, "talker": talker,
+                                  "received_at": time.time(), "source": "nmea_serial"}
         if kind == "RMC" and len(fields) >= 10:
-            result["valid"] = fields[2] == "A"
-            result["utc_date"] = fields[9]
-            result["speed_knots"] = float(fields[7]) if fields[7] else None
-            result["course_deg"] = float(fields[8]) if fields[8] else None
+            if fields[2] not in ("A", "V"):
+                return None
+            result.update(utc_time=fields[1], valid=fields[2] == "A", utc_date=fields[9])
+            result["speed_knots"] = _nmea_number(fields[7], 0, 100000)
+            result["course_deg"] = _nmea_number(fields[8], 0, 360)
             if fields[3] and fields[5]:
                 result["latitude"] = _coordinate(fields[3], fields[4], True)
                 result["longitude"] = _coordinate(fields[5], fields[6], False)
         elif kind == "GGA" and len(fields) >= 10:
-            result["fix_quality"] = int(fields[6] or "0")
-            result["valid"] = result["fix_quality"] > 0
-            result["satellites"] = int(fields[7] or "0")
-            result["hdop"] = float(fields[8]) if fields[8] else None
-            result["altitude_m"] = float(fields[9]) if fields[9] else None
+            quality = int(fields[6] or "0")
+            if not 0 <= quality <= 8:
+                return None
+            used = int(fields[7]) if fields[7] else None
+            if used is not None and not 0 <= used <= 99:
+                return None
+            result.update(utc_time=fields[1], fix_quality=quality, valid=quality > 0,
+                          satellites=used, satellites_used=used)
+            result["hdop"] = _nmea_number(fields[8], 0, 9999)
+            result["altitude_m"] = _nmea_number(fields[9], -20000, 100000)
             if fields[2] and fields[4]:
                 result["latitude"] = _coordinate(fields[2], fields[3], True)
                 result["longitude"] = _coordinate(fields[4], fields[5], False)
+        elif kind == "GSA" and len(fields) >= 18:
+            fix_type = int(fields[2])
+            if fields[1] not in ("A", "M") or fix_type not in (1, 2, 3):
+                return None
+            used_prns = [str(int(value)) for value in fields[3:15] if value]
+            if any(not 1 <= int(prn) <= 999 for prn in used_prns):
+                return None
+            system_id = int(fields[18]) if len(fields) > 18 and fields[18] else None
+            if system_id is not None and not 1 <= system_id <= 9:
+                return None
+            result.update(fix_type=fix_type, used_prns=used_prns, system_id=system_id,
+                          pdop=_nmea_number(fields[15], 0, 9999),
+                          hdop=_nmea_number(fields[16], 0, 9999),
+                          vdop=_nmea_number(fields[17], 0, 9999))
+        elif kind == "GSV" and len(fields) >= 4:
+            total, part, count = map(int, fields[1:4])
+            if not 1 <= total <= 64 or not 1 <= part <= total or not 0 <= count <= 256:
+                return None
+            items = fields[4:]
+            signal_id = None
+            if len(items) % 4 == 1:
+                signal_id = int(items[-1]) if items[-1] else None
+                if signal_id is not None and not 0 <= signal_id <= 99:
+                    return None
+                items = items[:-1]
+            if len(items) % 4 or len(items) > 16:
+                return None
+            satellites = []
+            for offset in range(0, len(items), 4):
+                prn, elevation, azimuth, cn0 = items[offset:offset + 4]
+                if not prn:
+                    if any((elevation, azimuth, cn0)):
+                        return None
+                    continue
+                if not 1 <= int(prn) <= 999:
+                    return None
+                satellites.append({"prn": str(int(prn)), "talker": talker,
+                                   "elevation_deg": _nmea_number(elevation, 0, 90),
+                                   "azimuth_deg": _nmea_number(azimuth, 0, 360),
+                                   "cn0_dbhz": _nmea_number(cn0, 0, 99),
+                                   "signal_id": signal_id})
+            result.update(gsv_total=total, gsv_part=part, satellites_reported=count,
+                          signal_id=signal_id, satellites_detail=satellites)
         else:
             return None
-        if result["valid"] and ("latitude" not in result or "longitude" not in result):
+        if result.get("valid") and ("latitude" not in result or "longitude" not in result):
             return None
-        for value in result.values():
-            if isinstance(value, float) and not math.isfinite(value):
-                return None
         return result
     except (ValueError, IndexError, OverflowError):
         return None
 
 
 class GPSReader:
-    """Optional USB-serial NMEA reader. ``pip install pyserial`` enables it."""
+    """USB serial transport, position freshness and separate satellite telemetry.
+
+    Serial-open, arriving bytes, checksummed NMEA, a valid position and a
+    complete GSV cycle are deliberately distinct observations.
+    """
+    TELEMETRY_MAX_AGE = 10.0
+
     def __init__(self, port: str, baud: int = 9600):
         self.port, self.baud = port, int(baud)
         self._serial: Any = None
         self.latest: dict[str, Any] | None = None
+        self.connected_at = None
+        self.bytes_received = self.lines_received = self.nmea_received = self.invalid_sentences = 0
+        self.last_data_at = self.last_nmea_at = self.last_fix_at = None
+        self.last_satellite_at = None
+        self._sentence_types: set[str] = set()
+        self._gsv_pending: dict[tuple, dict] = {}
+        self._gsv_complete: dict[tuple, dict] = {}
+        self._gsa: dict[tuple, dict] = {}
+        self._gga = None
 
     async def connect(self) -> None:
         try:
@@ -340,27 +428,163 @@ class GPSReader:
             raise HardwareError("GPS serial support requires pyserial: install the project's GPS extra") from exc
         try:
             self._serial = await asyncio.to_thread(serial.Serial, self.port, self.baud, timeout=1)
+            self.connected_at = time.time()
         except (OSError, serial.SerialException) as exc:
             raise HardwareError(f"Cannot open GPS serial port {self.port}: {exc}") from exc
+
+    def _observe_gsv(self, parsed: dict) -> None:
+        now = parsed["received_at"]
+        key = parsed["talker"], parsed["signal_id"]
+        # Bound noisy/corrupt receivers even when many signal/talker IDs arrive.
+        for collection in (self._gsv_pending, self._gsv_complete):
+            for old_key in list(collection):
+                if now - collection[old_key]["received_at"] > self.TELEMETRY_MAX_AGE:
+                    del collection[old_key]
+        if key not in self._gsv_pending and len(self._gsv_pending) >= 64:
+            self._gsv_pending.clear()
+        if parsed["gsv_part"] == 1:
+            self._gsv_pending[key] = {"received_at": now, "total": parsed["gsv_total"],
+                                      "count": parsed["satellites_reported"], "next": 1, "rows": []}
+        pending = self._gsv_pending.get(key)
+        if (pending is None or pending["next"] != parsed["gsv_part"]
+                or pending["total"] != parsed["gsv_total"]
+                or pending["count"] != parsed["satellites_reported"]):
+            self._gsv_pending.pop(key, None)
+            return
+        pending["rows"].extend(parsed["satellites_detail"])
+        pending["next"] += 1
+        if parsed["gsv_part"] == parsed["gsv_total"]:
+            if len(self._gsv_complete) >= 64 and key not in self._gsv_complete:
+                self._gsv_complete.pop(min(self._gsv_complete, key=lambda k: self._gsv_complete[k]["received_at"]))
+            self._gsv_complete[key] = {"received_at": now, "count": pending["count"],
+                                       "rows": pending["rows"]}
+            self.last_satellite_at = now
+            del self._gsv_pending[key]
 
     async def read_fix(self) -> dict[str, Any] | None:
         if self._serial is None:
             raise HardwareError("Connect GPS reader before reading fixes")
         raw = await asyncio.to_thread(self._serial.readline)
-        parsed = parse_nmea(raw.decode("ascii", "replace"))
-        if parsed is not None:
-            previous = self.latest or {}
-            # Merge only supplementary data; position validity always follows
-            # the latest receiver sentence, including explicit loss of fix.
-            self.latest = {**previous, **parsed}
+        if not raw:
+            return None
+        now = time.time()
+        self.bytes_received += len(raw)
+        self.lines_received += 1
+        self.last_data_at = now
+        text = raw.decode("ascii", "replace")
+        fields = _nmea_fields(text)
+        if fields is None:
+            self.invalid_sentences += 1
+            return None
+        self.nmea_received += 1
+        self.last_nmea_at = now
+        self._sentence_types.add(fields[0][-3:])
+        parsed = parse_nmea(text)
+        if parsed is None:
+            return None
+        kind = parsed["sentence_type"]
+        if kind in ("RMC", "GGA"):
+            self.latest = {**(self.latest or {}), **parsed}
+            if parsed["valid"]:
+                self.last_fix_at = parsed["received_at"]
+            if kind == "GGA":
+                self._gga = parsed
+        elif kind == "GSV":
+            self._observe_gsv(parsed)
+        elif kind == "GSA":
+            key = parsed["talker"], parsed["system_id"]
+            if len(self._gsa) >= 64 and key not in self._gsa:
+                self._gsa.pop(min(self._gsa, key=lambda k: self._gsa[k]["received_at"]))
+            self._gsa[key] = parsed
+            if (parsed["fix_type"] == 1 and self.latest is not None
+                    and parsed["talker"] == self.latest.get("talker")
+                    and (parsed["talker"] != "GN" or parsed["system_id"] is None)):
+                # Explicit receiver fix loss is meaningful even before its
+                # next RMC/GGA. It must not refresh a position timestamp;
+                # conversely a 2D/3D GSA cannot create a new position fix.
+                self.latest = {**self.latest, "valid": False}
         return parsed
 
     def status(self) -> dict[str, Any]:
-        if self.latest is None:
-            return {"connected": self._serial is not None, "valid": False, "reason": "No GPS fix received"}
-        age = max(0.0, time.time() - self.latest["received_at"])
-        return {**self.latest, "connected": self._serial is not None,
-                "age_seconds": age, "valid": bool(self.latest["valid"] and age < 5)}
+        now = time.time()
+        connected = self._serial is not None and bool(getattr(self._serial, "is_open", True))
+        def age(stamp):
+            return max(0.0, now - stamp) if stamp is not None else None
+        latest = self.latest or {}
+        position_age = age(latest.get("received_at"))
+        recent = lambda row: connected and now - row["received_at"] <= self.TELEMETRY_MAX_AGE
+        groups = [(key, group) for key, group in self._gsv_complete.items() if recent(group)]
+        # GN denotes combined receiver reports. Prefer these to overlapping
+        # per-constellation reports rather than summing the same satellites.
+        if any(key[0] == "GN" for key, _ in groups):
+            groups = [(key, group) for key, group in groups if key[0] == "GN"]
+        rows = {}
+        reported = {}
+        for (talker, _), group in groups:
+            reported[talker] = max(reported.get(talker, 0), group["count"])
+            for row in group["rows"]:
+                key = talker, row["prn"]
+                if key not in rows or (row["cn0_dbhz"] or 0) > (rows[key]["cn0_dbhz"] or 0):
+                    rows[key] = row.copy()
+        gsa_all = [row for row in self._gsa.values() if recent(row)]
+        gsa = gsa_all
+        if any(row["talker"] == "GN" and row["system_id"] is None for row in gsa):
+            gsa = [row for row in gsa if row["talker"] == "GN" and row["system_id"] is None]
+        systems = {"GP": 1, "GL": 2, "GA": 3, "GB": 4, "BD": 4, "GQ": 5, "GI": 6}
+        def system(row):
+            return row["system_id"] or systems.get(row["talker"], row["talker"])
+        used_ids = {(system(row), prn) for row in gsa for prn in row["used_prns"]}
+        gga = self._gga if self._gga is not None and recent(self._gga) else None
+        used = (gga["satellites_used"] if gga is not None and gga["satellites_used"] is not None
+                else len(used_ids) if gsa else None)
+        used_at = (gga["received_at"] if gga is not None and gga["satellites_used"] is not None
+                   else max((row["received_at"] for row in gsa), default=None))
+        if used_at is None:
+            historical_used = [row["received_at"] for row in self._gsa.values()]
+            if self._gga is not None and self._gga["satellites_used"] is not None:
+                historical_used.append(self._gga["received_at"])
+            used_at = max(historical_used, default=None)
+        for (talker, prn), row in rows.items():
+            # GN GSA system IDs use constellation-local identifiers. A
+            # Galileo PRN 1 must not mark GPS PRN 1 as used. Combined GN GSV
+            # rows without a constellation remain unknown when ambiguous.
+            matching = [entry for entry in gsa
+                        if ((talker != "GN" and system(entry) == systems.get(talker, talker))
+                            or (talker == "GN" and entry["talker"] == "GN"
+                                and entry["system_id"] is None))]
+            row["used"] = any(prn in entry["used_prns"] for entry in matching) if matching else None
+        details = sorted(rows.values(), key=lambda row: (row["talker"], int(row["prn"])))
+        satellite_stamp = max((group["received_at"] for _, group in groups),
+                              default=self.last_satellite_at)
+        gsa_latest = max(gsa, key=lambda row: row["received_at"], default=None)
+        position_gsa = [row for row in gsa_all if row["talker"] == latest.get("talker")
+                        and (row["talker"] != "GN" or row["system_id"] is None)]
+        position_gsa_latest = max(position_gsa, key=lambda row: row["received_at"], default=None)
+        fix_type = (position_gsa_latest["fix_type"] if position_gsa_latest
+                    else max((row["fix_type"] for row in gsa_all), default=None)
+                    if latest.get("talker") == "GN" else gsa_latest["fix_type"] if gsa_latest else None)
+        # Match the legacy receipt time to the latest position sentence only.
+        # GSV/GSA can keep arriving while that position becomes stale.
+        result = {**latest, "connected": connected, "connected_at": self.connected_at,
+                  "port": self.port, "baud": self.baud,
+                  "bytes_received": self.bytes_received, "lines_received": self.lines_received,
+                  "nmea_received": self.nmea_received, "invalid_sentences": self.invalid_sentences,
+                  "last_data_at": self.last_data_at, "last_nmea_at": self.last_nmea_at,
+                  "last_fix_at": self.last_fix_at, "data_age_s": age(self.last_data_at),
+                  "nmea_age_s": age(self.last_nmea_at), "fix_age_s": age(self.last_fix_at),
+                  "age_seconds": position_age,
+                  "valid": bool(connected and latest.get("valid") and position_age is not None and position_age < 5),
+                  "satellites_used": used, "satellites": used,
+                  "satellites_used_age_s": age(used_at),
+                  "satellites_in_view": max(sum(reported.values()), len(details)) if groups else None,
+                  "satellites_with_signal": sum((row["cn0_dbhz"] or 0) > 0 for row in details) if groups else None,
+                  "satellites_detail": details, "satellite_age_s": age(satellite_stamp),
+                  "sentence_types": sorted(self._sentence_types),
+                  "fix_type": fix_type,
+                  "fix_quality": gga["fix_quality"] if gga is not None else None,
+                  "hdop": (gga.get("hdop") if gga is not None and gga.get("hdop") is not None
+                           else gsa_latest.get("hdop") if gsa_latest else None)}
+        return result
 
     async def close(self) -> None:
         port, self._serial = self._serial, None
