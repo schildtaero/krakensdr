@@ -146,6 +146,7 @@ LoRa bleibt als **experimentell / Hardwareabnahme offen** gekennzeichnet. Die re
 - [Prüfstand](docs/validierung.md)
 - [Verarbeitung, SNR und Diagnose](docs/verarbeitung-und-snr.md)
 - [GPS-Verbindung, Satelliten und Fix](docs/gps-anzeige.md)
+- [DJI-Erweiterung: Hardwaregrenzen und Vorprüfung](docs/dji-erweiterung.md) — noch keine implementierte DJI-Livequelle.
 - [Drittbibliotheken](THIRD_PARTY.md)
 
 OpenAPI-Dokumentation läuft lokal unter `/docs`. Externe SimpleSDR-/Kraken-Quellcodeverzeichnisse sind zur Laufzeit nicht erforderlich.
