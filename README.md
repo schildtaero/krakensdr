@@ -1,10 +1,12 @@
-# KrakenDF Demo 0.2.3
+# KrakenDF Demo 0.3.0
 
 Lokales Webinterface für einen feststehenden KrakenSDR, eine ARCELI VK-162 GPS-Maus und DL7CR/BFT-Tracker auf LilyGO T-Deck 433. Dieselben POCSAG-/LoRa-Positionspakete werden decodiert und mit fünf kohärenten Antennen gepeilt. Emitter werden anhand des alphanumerischen Rufzeichens zugeordnet.
 
+Zusätzlich steht ein **Passivradarmodus für DAB+ und UKW-Rundfunk** zur Verfügung: zwei auswählbare kohärente Antennenkanäle, Direktsignal-Unterdrückung, Verzögerungs-Doppler-Karte, Detektionskandidaten, eigene IQ-Aufnahme/Replay und Excel-Export. Der Kraken wird zwischen DF und Radar umgeschaltet. Für den Radarversuch sind passende, getrennt aufgestellte Referenz- und Beobachtungsantennen nötig; das 433-MHz-DF-Array ist dafür nicht unverändert geeignet. [Aufbau und Bedienung](docs/passivradar.md).
+
 **Der vollständige lokale Kraken-Stack ist eingebunden; Live ist der Standard.** Das Repository enthält die fest versionierten Heimdall-/Kraken-Treiberquellen, Buildanpassungen und Erststart-Skripte. Die Anwendung übernimmt deren Konfiguration und Prozessverwaltung. Physische Kraken-/433-MHz-/VK-162-Abnahme steht weiterhin aus.
 
-Zentrales Repository: **https://github.com/schildtaero/krakensdr**. Version 0.2.3 zeigt GPS-Verbindung, NMEA-Datenfluss, Satellitensignale und Positionsfix getrennt an, ergänzt einen GPS-Detaildialog und eine Neuverbindung. Die Profile **Pegasus 95** und **Pentagon 105**, Paket-SNR, Diagnose-ZIP und beschleunigte Empfangsverarbeitung aus 0.2.2 bleiben enthalten.
+Zentrales Repository: **https://github.com/schildtaero/krakensdr**. Version 0.3.0 ergänzt den Passivradarmodus. Die GPS-/Satellitenanzeige aus 0.2.3 sowie die Profile **Pegasus 95** und **Pentagon 105**, Paket-SNR, Diagnose-ZIP und beschleunigte DF-Verarbeitung bleiben enthalten. Die neue Radarauswertung wird mit synthetischen IQ-Signalen geprüft; ein realer Flugzeugnachweis mit diesem Softwarestand steht aus.
 
 ## Schnellstart
 
@@ -68,6 +70,7 @@ Standardmäßig bindet die Anwendung nur an localhost. Die zweite Variante dient
 - **Record/Replay:** Messwerte, Profile, Qualitätsflags, Spektrum und kohärente Fünfkanal-IQ-Ausschnitte je zugeordnetem Paket; erneute MUSIC-Auswertung beim Replay.
 - **Kalibrierung:** periodische Winkelkorrektur, Azimutabdeckung und unabhängiger Prüflauf. Ungeprüfte oder verschlechternde Modelle können nicht aktiviert werden.
 - **Excel:** `.xlsx` mit Einzelmessungen, Gesamt-RMS, RMS nach Referenzazimut, Profilen und Kalibrierbefunden. Empfangstexte werden als Text und nicht als Excel-Formeln exportiert.
+- **Passivradar:** eigener Tab für DAB+ oder UKW, frei zuweisbare Referenz-/Beobachtungskanäle, Filterung, Direktsignal-Unterdrückung und Verzögerungs-Doppler-Karte. Spitzen sind Detektionskandidaten; Zusatzweg und Doppler sind keine direkte Zielentfernung bzw. Fluggeschwindigkeit. Separate Radar-IQ-Aufnahmen, erneute Auswertung beim Replay und `.xlsx`-Export. Live und Simulation werden ausdrücklich gewählt.
 
 ## Erster Demolauf
 
@@ -78,6 +81,8 @@ Standardmäßig bindet die Anwendung nur an localhost. Die zweite Variante dient
 5. Für eine Beispielkalibrierung einen Trainingslauf bis zur ausreichenden Richtungsabdeckung aufnehmen, stoppen und eine neue unabhängige Runde als Prüflauf aufnehmen. Beide unter **Kalibrierung** auswählen. Die Mindestabdeckung beträgt im Training drei gültige Pakete in jedem der 24 Sektoren, im Prüflauf mindestens eines je Sektor. Der Algorithmus verlangt getrennte Lauf-IDs und dasselbe Messprofil.
 
 Für echte Messungen danach Datenquelle **Live** wählen. Fehlende Hardware erzeugt einen sichtbaren Fehlerzustand; es erfolgt kein stiller Rückfall auf Simulation.
+
+Für eine Radarvorführung den Tab **Passivradar** öffnen, ein Beispielprofil übernehmen, dort ausdrücklich **Simulation** wählen und **Radar starten** drücken. Der Simulator erzeugt kohärente verzögerte und Doppler-verschobene IQ-Signale, die dieselbe Radarauswertung durchlaufen. Für Live einen örtlichen Sender und passende Antennen konfigurieren; **220,352 MHz** und **100,000 MHz** sind Beispielfrequenzen. Größere Flugzeuge sind ein sinnvoller erster Versuch, die Detektion am eigenen Aufbau ist jedoch zu erproben. [Vollständige Radaranleitung](docs/passivradar.md).
 
 ## Kraken-Hardware anschließen
 
@@ -116,7 +121,9 @@ Messaufbau, Benchmark, Bedeutung des SNR und praktische Grenzen: [Verarbeitung u
 
 Standard-Datenverzeichnis ist `~/.krakendf`; `--data-dir` oder `KRAKENDF_DATA` überschreibt es. Darin liegen Konfiguration, Symbole, Korrekturmodelle, Sitzungsmanifeste, Ereignislogs, IQ-Clips und Kartencache. Kein automatisches Löschen alter Aufnahmen.
 
-Aufnahmen speichern die ausgewählten kanalisierten IQ-Paketfenster, **keine kontinuierliche Breitbandaufzeichnung**. Das Replay erlaubt neue Peilberechnungen innerhalb dieser Fenster, aber kein nachträgliches Empfangen anderer RF-Kanäle. Empfangsunterbrechungen setzen die Capture-Pipeline zurück; beschädigte Pakete werden nicht als gültige Referenzen verwendet. Eine direkte Vollbandaufzeichnung und dauerhafte Aufnahme aller anonymen/undecodierbaren Bursts sind noch nicht als Bedienoption implementiert.
+DF-Aufnahmen speichern die ausgewählten kanalisierten IQ-Paketfenster, **keine kontinuierliche Breitbandaufzeichnung**. Das Replay erlaubt neue Peilberechnungen innerhalb dieser Fenster, aber kein nachträgliches Empfangen anderer RF-Kanäle. Empfangsunterbrechungen setzen die Capture-Pipeline zurück; beschädigte Pakete werden nicht als gültige Referenzen verwendet. Eine direkte Vollbandaufzeichnung und dauerhafte Aufnahme aller anonymen/undecodierbaren DF-Bursts sind noch nicht als Bedienoption implementiert.
+
+Radaraufnahmen liegen getrennt unter `radar-sessions/`. Sie speichern das ausgewählte kanalisierte IQ-Paar samt Verzögerungsvorgeschichte, Qualitätsangaben, Profil und Ergebnissen je Auswertefenster. Replay berechnet die Radaransicht daraus erneut. Pro Radaraufnahme gelten **4 GiB Limit** und **256 MiB freie Speicherreserve**; am Limit endet die Aufnahme, während die Radarauswertung weiterläuft. Ohne Dezimierung entstehen bei 2,4 MS/s rund **38,4 MB/s** IQ-Daten zuzüglich Metadaten und Ergebnissen. [Details zu Speicherbedarf und Messgrößen](docs/passivradar.md).
 
 Beim Profilwechsel wird die laufende Statistik getrennt und die Korrektur deaktiviert. Aufnahme und Replay sperren Profiländerungen. Korrekturmodelle werden bei korrigierten Aufnahmen mit den Beobachtungen gesichert. Trainings- und Prüfläufe mit verschiedenen Datenarten oder Profilen dürfen nicht kombiniert werden.
 
@@ -126,15 +133,19 @@ Beim Profilwechsel wird die laufende Statistik getrennt und die Korrektur deakti
 python -m unittest discover -s tests -v
 node --check krakendf/static/app.js
 node --check krakendf/static/map.js
+node --check krakendf/static/radar.js
 ```
 
 Die Tests prüfen Protokolle, DSP, Bursts über Framegrenzen, Decodierung, Samplezuordnung, HTTP/WebSocket-API, Record/Replay, Excel, Offlinecache und MBTiles. Die optionale reale LoRa-Referenzaufnahme liegt im externen SimpleSDR-Repository und wird ohne dieses Fixture übersprungen. Sie ist eine einkanalige Pluto-Aufnahme bei 868 MHz, kein Kraken-433-MHz-Genauigkeitsnachweis.
+
+Die Radartests verwenden bekannte synthetische Verzögerungen und Dopplerfrequenzen und prüfen Verarbeitung, Datenlücken, Aufnahme/Replay und Export. Aus dem Erfolg dieser Tests folgt keine nachgewiesene RF-Empfindlichkeit oder Flugzeugreichweite. Eine einzelne bistatische Messung liefert keine geografische Flugzeugposition und keine direkte Fluggeschwindigkeit.
 
 LoRa bleibt als **experimentell / Hardwareabnahme offen** gekennzeichnet. Die reale Referenzaufnahme decodiert mit Header- und Payload-CRC; Empfindlichkeit, Echtzeitleistung des Zielhosts und Winkel-RMS müssen am Aufbau gemessen werden. Die Browserdarstellung wurde statisch geprüft; die Cloud-Umgebung bot das vorgeschriebene Browserwerkzeug nicht an.
 
 ## Dokumentation
 
 - [PDF-Handbuch: Funktion und Bedienung](docs/KrakenDF-Funktion-und-Bedienung.pdf) — Softwarestand 0.2.3: Peilprinzip, alle fünf Antennenprofile, GPS-/Satellitenanzeige, Heading, SNR, Livebetrieb, Kalibrierung, RMS, Verarbeitung und Diagnose; [bearbeitbare Quelle](docs/df-handbuch.md), [PDF neu erstellen](docs/pdf-erstellen.md).
+- [Passivradar: DAB+, UKW, Aufbau und Bedienung](docs/passivradar.md) — Ergänzung für Softwarestand 0.3.0; Messgrößen, Antennen, Flugzeugversuch, Aufnahme/Replay und Grenzen.
 - [Spezifikation](docs/spezifikation.md) — ursprünglicher Entwurf; Umsetzung und Abweichungen siehe diese README.
 - [Antennenmaße und Kanalzuordnung](docs/antennen.md)
 - [Hardwareprotokoll](docs/hardware.md)
@@ -155,6 +166,6 @@ OpenAPI-Dokumentation läuft lokal unter `/docs`. Externe SimpleSDR-/Kraken-Quel
 
 Backend mit Strg+C beenden, im Git-Checkout `git pull --ff-only` ausführen und erneut `start.cmd` beziehungsweise `./start.sh` starten. Unter Windows aktualisiert eine neue Projektversion die WSL-Kopie über den vorhandenen Starthelfer. Keine WSL-Abschaltung nötig; USB-Durchreichung bleibt so erhalten. Nach Änderungen an der Oberfläche die Seite mit Strg+F5 neu laden.
 
-Alternativ die [aktuelle ZIP-Datei von GitHub](https://github.com/schildtaero/krakensdr/archive/refs/heads/main.zip) in einen neuen Ordner entpacken und dort `start.cmd` bzw. `./start.sh` ausführen. Die neue Paketversion 0.2.3 löst bei einer vorhandenen Windows-Installation die Aktualisierung der Linux-Projektkopie aus. Danach unter **Setup → Antennenprofil** ausdrücklich Pegasus 95 oder Pentagon 105 auswählen; gespeicherte alte Profile werden nicht still ersetzt.
+Alternativ die [aktuelle ZIP-Datei von GitHub](https://github.com/schildtaero/krakensdr/archive/refs/heads/main.zip) in einen neuen Ordner entpacken und dort `start.cmd` bzw. `./start.sh` ausführen. Die neue Paketversion 0.3.0 löst bei einer vorhandenen Windows-Installation die Aktualisierung der Linux-Projektkopie aus. Gespeicherte DF-Profile werden nicht still ersetzt. Der neue Radarmodus hat ein eigenes Empfangsprofil; vor dem ersten Live-Radarstart Senderfrequenz und Antennenkanäle prüfen.
 
 Eigene Änderungen vor dem Pull mit `git status` prüfen und sichern. Aufnahmen, `.runtime`, `.venv`, lokale Karten und Konfigurationen werden nicht über Git synchronisiert. Nach neuen abgeschlossenen Änderungen wird der geprüfte Quellcode in dieses Repository übertragen.

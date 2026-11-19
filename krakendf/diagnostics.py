@@ -197,6 +197,8 @@ def diagnostic_snapshot(service) -> dict:
     source = service.source
     daq = service.daq.status()
     gps = service._gps_state()
+    radar = getattr(service, "radar", None)
+    radar_state = radar.snapshot() if radar is not None else {}
     versions = {}
     for package in ("numpy", "scipy", "fastapi", "pyzmq", "numba", "scikit-rf"):
         try:
@@ -222,6 +224,12 @@ def diagnostic_snapshot(service) -> dict:
                    "dsp_fallback_reason": _redact(source.get("dsp_fallback_reason", ""), 8192),
                    "message": _redact(source.get("message", ""), 8192)},
         "performance": _numbers(source.get("performance", getattr(service, "performance", {}))),
+        "radar": {"config": radar_state.get("config", {}),
+                  **{key: radar_state.get(key) for key in
+                     ("mode", "status", "simulated", "received_frames", "dropped_frames",
+                      "processed_cpis", "processing_ms", "rf_duration_ms", "hardware_validated")},
+                  "message": _redact(radar_state.get("message", ""), 8192),
+                  "quality": _numbers(radar_state.get("quality", {}))},
         "gps": {**{key: gps.get(key) for key in (
             "model", "status", "connected", "detected", "port", "baud", "valid",
             "bytes_received", "lines_received", "nmea_received", "invalid_sentences",

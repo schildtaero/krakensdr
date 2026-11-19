@@ -34,6 +34,7 @@ jobs:
         run: |
           node --check krakendf/static/app.js
           node --check krakendf/static/map.js
+          node --check krakendf/static/radar.js
           bash -n start.sh setup.sh scripts/setup-wsl.sh
 
   powershell-syntax:

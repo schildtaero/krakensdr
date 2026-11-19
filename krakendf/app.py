@@ -102,7 +102,8 @@ def create_app(data_dir: Path | str | None = None, initial_mode: str | None = No
 
     @app.get("/api/health")
     async def health():
-        return {"status": "ok", "version": __version__, "source_mode": service.source["mode"]}
+        return {"status": "ok", "version": __version__, "source_mode": service.source["mode"],
+                "radar_mode": service.radar.mode}
 
     @app.get("/api/state")
     async def state():
@@ -121,6 +122,59 @@ def create_app(data_dir: Path | str | None = None, initial_mode: str | None = No
     @app.get("/api/arrays")
     async def arrays():
         return {"presets": load_presets()}
+
+    @app.get("/api/radar/state")
+    async def radar_state():
+        return service.radar.snapshot()
+
+    @app.get("/api/radar/config")
+    async def radar_config():
+        return service.radar.config.model_dump()
+
+    @app.patch("/api/radar/config")
+    async def radar_configure(patch: dict = Body(...)):
+        async with service.control:
+            return await service.radar.update_config(patch)
+
+    @app.post("/api/radar/start")
+    async def radar_start(request: SourceRequest):
+        async with service.control:
+            return await service.start_radar(request.mode, request.host, request.port, request.managed)
+
+    @app.post("/api/radar/stop")
+    async def radar_stop():
+        async with service.control:
+            return await service.radar.stop()
+
+    @app.post("/api/radar/record/start")
+    async def radar_record_start(request: RecordRequest):
+        async with service.control:
+            return await service.radar.start_recording(request.name)
+
+    @app.post("/api/radar/record/stop")
+    async def radar_record_stop():
+        async with service.control:
+            return await service.radar.stop_recording()
+
+    @app.post("/api/radar/replay/start")
+    async def radar_replay_start(request: ReplayRequest):
+        async with service.control:
+            return await service.start_radar_replay(request.session_id, request.speed)
+
+    @app.post("/api/radar/replay/stop")
+    async def radar_replay_stop():
+        async with service.control:
+            return await service.radar.stop_replay()
+
+    @app.get("/api/radar/sessions")
+    async def radar_sessions():
+        return {"sessions": await asyncio.to_thread(service.radar.store.list_sessions)}
+
+    @app.get("/api/radar/export.xlsx")
+    async def radar_export(session_id: str = Query(...)):
+        content = await asyncio.to_thread(service.radar.store.export_xlsx, session_id)
+        return StreamingResponse(io.BytesIO(content), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                 headers={"Content-Disposition": 'attachment; filename="KrakenDF-Passivradar.xlsx"'})
 
     @app.get("/api/decoders")
     async def decoders():

@@ -9,9 +9,11 @@
   <link rel="stylesheet" href="/static/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/static/styles.css">
   <link rel="stylesheet" href="/static/map.css">
+  <link rel="stylesheet" href="/static/radar.css">
   <script defer src="/static/vendor/leaflet/leaflet.js"></script>
   <script defer src="/static/vendor/milsymbol/milsymbol.js"></script>
   <script defer src="/static/map.js"></script>
+  <script defer src="/static/radar.js"></script>
   <script defer src="/static/app.js"></script>
 </head>
 <body>
@@ -44,6 +46,7 @@
     <div class="rail-divider"></div>
     <button class="rail-btn active" data-view="monitor" title="Lagebild" aria-label="Lagebild" aria-current="page"><svg class="icon"><use href="#i-radar"/></svg><span>Lagebild</span></button>
     <button class="rail-btn" data-view="analysis" title="Auswertung" aria-label="Auswertung"><svg class="icon"><use href="#i-chart"/></svg><span>Analyse</span></button>
+    <button class="rail-btn" data-view="radar" title="Passivradar" aria-label="Passivradar"><svg class="icon"><use href="#i-wave"/></svg><span>Radar</span></button>
     <button class="rail-btn" data-open="sessions-dialog" title="Aufnahmen & Replay" aria-label="Aufnahmen & Replay"><svg class="icon"><use href="#i-folder"/></svg><span>Replay</span></button>
     <button class="rail-btn" data-open="config-dialog" title="Einrichtung" aria-label="Einrichtung"><svg class="icon"><use href="#i-settings"/></svg><span>Setup</span></button>
     <div class="rail-bottom">
@@ -103,7 +106,65 @@
         <article class="panel"><div class="panel-heading"><div><span class="panel-kicker">MESSWERTE</span><h2>Azimutsegmente</h2></div><span class="small-note">15° je Sektor</span></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Referenzazimut</th><th>Pakete</th><th>RMS roh</th><th>RMS korrigiert</th><th>Abdeckung</th></tr></thead><tbody id="bin-table"></tbody></table></div></article>
       </section>
 
-      <footer class="app-footer"><div><span class="status-dot" id="footer-dot"></span><span id="footer-message">Lokale Verarbeitung wird verbunden …</span></div><div><span id="recording-status">Keine Aufnahme</span><span class="footer-separator">/</span><span id="footer-version">KRAKENDF · v0.1</span></div></footer>
+      <section class="radar-view" id="radar-view" hidden aria-label="Passivradar">
+        <div class="radar-intro panel">
+          <div><span class="panel-kicker">KOHÄRENTER EMPFANG / DAB+ & UKW</span><h2>Bewegte Reflexionen sichtbar machen</h2><p>Eine Referenzantenne empfängt den Rundfunksender direkt, eine zweite Antenne den Beobachtungssektor. Der Vergleich zeigt zusätzlichen Signalweg und Dopplerverschiebung.</p></div>
+          <span class="radar-source-badge" id="radar-source-badge">BEREIT</span>
+        </div>
+
+        <div class="radar-controls">
+          <article class="panel radar-config-panel">
+            <div class="panel-heading"><div><span class="panel-kicker">01 / BELEUCHTER & EMPFANG</span><h2>Radar einrichten</h2></div><div class="radar-presets"><button type="button" class="text-button" data-radar-preset="dab">DAB+ Beispiel</button><button type="button" class="text-button" data-radar-preset="fm">UKW Beispiel</button></div></div>
+            <form id="radar-config-form">
+              <fieldset id="radar-config-fields" class="radar-config-grid">
+                <label>Beleuchter<select name="illuminator"><option value="dab">DAB+</option><option value="fm">UKW / FM</option></select></label>
+                <label>Senderfrequenz <em>MHz</em><input name="center_frequency_mhz" type="number" value="220.352" min="24" max="1766" step="0.000001" required></label>
+                <label>Referenz<select name="reference_channel"><option value="0">CH0</option><option value="1">CH1</option><option value="2">CH2</option><option value="3">CH3</option><option value="4">CH4</option></select></label>
+                <label>Beobachtung<select name="surveillance_channel"><option value="0">CH0</option><option value="1" selected>CH1</option><option value="2">CH2</option><option value="3">CH3</option><option value="4">CH4</option></select></label>
+                <label>Abtastrate <em>MS/s</em><select name="sample_rate_msps"><option value="2.4">2,4</option><option value="2.048">2,048</option><option value="1.024">1,024</option><option value="0.25">0,25</option></select></label>
+                <label>Gain <em>dB</em><select name="gain_db"><option value="0">0,0</option><option value="0.9">0,9</option><option value="1.4">1,4</option><option value="2.7">2,7</option><option value="3.7">3,7</option><option value="7.7">7,7</option><option value="8.7">8,7</option><option value="12.5">12,5</option><option value="14.4">14,4</option><option value="15.7">15,7</option><option value="16.6">16,6</option><option value="19.7">19,7</option><option value="20.7" selected>20,7</option><option value="22.9">22,9</option><option value="25.4">25,4</option><option value="28">28,0</option><option value="29.7">29,7</option><option value="32.8">32,8</option><option value="33.8">33,8</option><option value="36.4">36,4</option><option value="37.2">37,2</option><option value="38.6">38,6</option><option value="40.2">40,2</option><option value="42.1">42,1</option><option value="43.4">43,4</option><option value="43.9">43,9</option><option value="44.5">44,5</option><option value="48">48,0</option><option value="49.6">49,6</option></select></label>
+                <label>Signalbandbreite <em>kHz</em><input name="bandwidth_khz" type="number" value="1536" min="50" max="1800" step="1" required></label>
+                <label>Integrationszeit / CPI <em>s</em><select name="cpi_seconds"><option value="0.25">0,25</option><option value="0.5" selected>0,50</option><option value="1">1,00</option></select></label>
+                <label>Dopplerbereich <em>± Hz</em><input name="max_doppler_hz" type="number" value="200" min="10" max="1000" step="10" required></label>
+                <label>Verzögerungszellen<input name="range_bins" type="number" value="128" min="16" max="512" step="1" required></label>
+                <label>Detektionsschwelle <em>dB</em><input name="threshold_db" type="number" value="12" min="6" max="40" step="0.5" required></label>
+                <label>Unterdrückung / Taps<input name="cancellation_taps" type="number" value="8" min="1" max="32" step="1" required></label>
+              </fieldset>
+              <div class="radar-config-footer"><label class="radar-checkbox"><input name="cancellation_enabled" type="checkbox" checked>Direktsignal unterdrücken</label><button class="button button-quiet" id="radar-save-config" type="submit">Einstellungen übernehmen</button></div>
+              <p class="radar-help">Beispielfrequenzen sind keine Senderauswahl für Ihren Standort. Referenz und Beobachtung müssen verschiedene Kanäle sein. Für DAB+ mindestens 2,048 MS/s wählen.</p>
+            </form>
+          </article>
+          <article class="panel radar-operation-panel">
+            <div class="panel-heading"><div><span class="panel-kicker">02 / BETRIEB</span><h2>Quelle starten</h2></div><span class="status-dot" id="radar-status-dot"></span></div>
+            <fieldset class="radar-source-options" aria-label="Radar-Datenquelle"><label><input type="radio" name="radar_mode" value="live" checked><span><strong>Live · KrakenSDR</strong><small>Kohärente USB- oder externe DAQ-Daten</small></span></label><label><input type="radio" name="radar_mode" value="simulation"><span><strong>Simulation</strong><small>Synthetische IQ-Daten durch die Radarauswertung</small></span></label></fieldset>
+            <div class="radar-run-actions"><button class="button button-primary" id="radar-start" type="button"><svg class="icon"><use href="#i-play"/></svg>Radar starten</button><button class="button button-quiet" id="radar-stop" type="button" disabled><svg class="icon"><use href="#i-stop"/></svg>Stoppen</button></div>
+            <p class="radar-help">Ein KrakenSDR arbeitet jeweils im DF- oder Radarbetrieb. Ein Radarstart beendet den laufenden DF-Empfang. Rückkehr über „Lagebild“ und dessen Datenquelle.</p>
+            <div class="radar-status-message" id="radar-status-message" role="status">Radar ist gestoppt. Quelle wählen und starten.</div>
+            <div class="radar-inline-error" id="radar-error" role="alert" hidden></div>
+          </article>
+        </div>
+
+        <div class="radar-metrics" aria-label="Radarstatus">
+          <article class="panel radar-metric"><span class="metric-label">CPI / FRAME-RECHENZEIT</span><strong id="radar-timing">—</strong><small id="radar-budget">Noch kein Auswertefenster</small></article>
+          <article class="panel radar-metric"><span class="metric-label">EMPFANGSQUALITÄT</span><strong id="radar-quality">—</strong><small id="radar-gaps">Lücken und verworfene Fenster</small><small id="radar-quality-detail"></small></article>
+          <article class="panel radar-metric"><span class="metric-label">REFERENZ / BEOBACHTUNG</span><strong id="radar-levels">—</strong><small>Digitaler RMS-Pegel · dBFS</small></article>
+          <article class="panel radar-metric"><span class="metric-label">AUFLÖSUNG / SIGNALWEG</span><strong id="radar-range-resolution">—</strong><small id="radar-doppler-resolution">Doppler: —</small></article>
+        </div>
+
+        <article class="panel radar-plot-panel">
+          <div class="panel-heading"><div><span class="panel-kicker">03 / RANGE–DOPPLER</span><h2>Reflexionsbild</h2></div><span class="small-note" id="radar-frame-time">Kein Auswertefenster</span></div>
+          <div class="radar-heatmap-stage"><canvas id="radar-heatmap" role="img" aria-label="Range-Doppler-Diagramm: zusätzlicher Signalweg in Kilometern und Dopplerverschiebung in Hertz"></canvas><div class="radar-plot-empty" id="radar-plot-empty">Radar starten oder eine Radaraufnahme wiedergeben.</div></div>
+          <div class="radar-plot-footer"><div class="radar-color-legend"><span id="radar-scale-min">0 dB</span><i aria-hidden="true"></i><span id="radar-scale-max">30 dB</span><span>relativ zum Maximum</span></div><span id="radar-cell-spacing">Abtastzelle: —</span></div>
+          <p class="radar-explanation">Der zusätzliche Signalweg ist die Umwegstrecke Sender → Reflexion → Empfänger gegenüber dem direkten Sendersignal (c × Verzögerung). Er ist keine direkte Zielentfernung. Doppler ist eine Frequenzverschiebung; eine einzelne Messung liefert weder Flugzeugposition noch Fluggeschwindigkeit.</p>
+        </article>
+
+        <div class="radar-results-grid">
+          <article class="panel radar-candidates-panel"><div class="panel-heading"><div><span class="panel-kicker">04 / DETEKTIONSKANDIDATEN</span><h2>Lokale Spitzen</h2></div><span class="pill" id="radar-candidate-count">0</span></div><div class="table-scroll"><table class="data-table radar-candidate-table"><thead><tr><th>#</th><th>Verzögerung<br><small>Samples / µs</small></th><th>Zusatzweg<br><small>km</small></th><th>Doppler<br><small>Hz</small></th><th>Spitze / Hintergrund<br><small>dB</small></th></tr></thead><tbody id="radar-candidates"><tr><td colspan="5" class="empty-state">Noch keine Radardaten.</td></tr></tbody></table></div><p class="radar-help">Schwellenüberschreitungen sind Kandidaten. Störungen und Mehrwegeausbreitung können ebenfalls Spitzen erzeugen.</p><p class="radar-help" id="radar-guard-hint"></p><p class="radar-help">Die vier stärksten Kandidaten sind im Bild markiert. Die Tabelle lässt sich bei Bedarf seitlich scrollen.</p></article>
+          <article class="panel radar-record-panel"><div class="panel-heading"><div><span class="panel-kicker">05 / RADARAUFNAHMEN</span><h2>Aufnahme & Replay</h2></div><span class="radar-record-indicator" id="radar-record-state">Keine Aufnahme</span></div><div class="radar-record-body"><label>Name der Aufnahme<input id="radar-record-name" type="text" maxlength="100" placeholder="z. B. DAB · Flugplatz · Referenztest"></label><div class="radar-record-actions"><button class="button button-quiet" id="radar-record-start" type="button" disabled><svg class="icon"><use href="#i-record"/></svg>Aufnehmen</button><button class="button button-quiet" id="radar-record-stop" type="button" disabled>Aufnahme beenden</button></div><div class="radar-session-heading"><label for="radar-session">Radaraufnahme auswählen</label><button class="text-button" type="button" id="radar-refresh-sessions">Aktualisieren</button></div><select id="radar-session"><option value="">Noch keine Radaraufnahmen</option></select><p class="radar-help" id="radar-session-detail">Radaraufnahmen werden unabhängig von den BFT-Sitzungen gespeichert.</p><div class="radar-replay-actions"><label>Tempo<select id="radar-replay-speed"><option value="0.5">0,5 ×</option><option value="1" selected>1 ×</option><option value="2">2 ×</option><option value="4">4 ×</option></select></label><button class="button button-quiet" id="radar-replay-start" type="button" disabled><svg class="icon"><use href="#i-play"/></svg>Replay</button><button class="button button-quiet" id="radar-replay-stop" type="button" disabled>Replay stoppen</button></div><p class="radar-help" id="radar-replay-progress" role="status"></p><p class="radar-help">Replay startet die gespeicherte Radarauswertung erneut. Eine Radaraufnahme endet bei 4 GiB oder knappem freiem Speicher; der Empfang läuft weiter.</p><a class="button button-quiet radar-export" id="radar-export" href="/api/radar/export.xlsx" download aria-disabled="true"><svg class="icon"><use href="#i-download"/></svg>Excel exportieren</a></div></article>
+        </div>
+      </section>
+
+      <footer class="app-footer"><div><span class="status-dot" id="footer-dot"></span><span id="footer-message">Lokale Verarbeitung wird verbunden …</span></div><div><span id="recording-status">Keine Aufnahme</span><span class="footer-separator">/</span><span id="footer-version">KRAKENDF · v0.3.0</span></div></footer>
     </main>
   </div>
 

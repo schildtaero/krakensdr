@@ -99,7 +99,7 @@
     renderStatus();renderTracks();renderMetrics();renderCoverage();renderChannels();renderDiagnostics();renderGPS();
     if($('#sessions-dialog').open)renderSessions();
     if($('#calibration-dialog').open)renderCalibration();
-    drawAll();updateMap();renderSourceRuntime();
+    drawAll();updateMap();renderSourceRuntime();window.KrakenRadar?.update(state.radar);
   }
 
   function receiverStageLabel(daq={}) {
@@ -290,6 +290,16 @@
     $('#footer-dot').className=`status-dot ${receiverError?'red':simulation?'amber':receiverReady?'green':replay?'cyan':mode==='live'?'amber':''}`;
     const event=(state.events||[])[0];
     $('#footer-message').textContent=receiverError?(source.message||daq.message||'Empfangsfehler'):event?.message||source.message||'Lokale Verarbeitung bereit';
+    const radar=state.radar||{},radarActive=radar.mode&&radar.mode!=='idle';
+    if(radarActive){
+      const radarError=radar.status==='error',tone=radarError?'red':radar.simulated?'amber':radar.mode==='replay'?'cyan':radar.status==='running'?'green':'amber';
+      notice.className=`mode-notice${radar.simulated?' simulation':''}${radarError?' error':''}`;
+      text.textContent=`PASSIVRADAR · ${radar.mode==='simulation'?'SIMULATION · ':radar.mode==='replay'?'REPLAY · ':''}${radar.message||'Empfang läuft.'} Peilbetrieb ist angehalten.`;
+      $('#coherence-status').textContent=radarError?'Passivradar prüfen':radar.mode==='replay'?'Passivradar · aufgezeichnete IQ':radar.status==='running'?'Passivradar · kohärenter Empfang':'Passivradar · warte auf Daten';
+      $('#frame-count').textContent=`${number(radar.received_frames||0,0)} Frames`;
+      $('#footer-dot').className=`status-dot ${tone}`;$('#footer-message').textContent=radar.message||'Passivradar aktiv';
+      if(radar.recording)$('#recording-status').innerHTML=`<i class="record-indicator"></i>Radar · ${esc(radar.recording.name)} · ${bytes(radar.recording.iq_bytes)}`;
+    }
   }
 
   function renderTracks() {
@@ -500,9 +510,13 @@
   function updateMap(){if(!window.KrakenMap||!state)return;try{if(!mapReady){window.KrakenMap.init($('#tactical-map'));mapReady=true;}window.KrakenMap.update(state);}catch(error){console.warn('Kartenansicht:',error);}}
 
   function setView(next) {
-    view=next==='analysis'?'analysis':'monitor';$('#monitor-view').hidden=view!=='monitor';$('#analysis-view').hidden=view!=='analysis';
-    $('#page-title').innerHTML=`${view==='analysis'?'Messauswertung':'Peilübersicht'}<span class="title-dot">.</span>`;
-    $('#page-subtitle').textContent=view==='analysis'?'Peilfehler über Richtung und Messprofil vergleichen.':'Signale verfolgen. Peilung vergleichen. Präzision verstehen.';
+    view=['analysis','radar'].includes(next)?next:'monitor';$('#monitor-view').hidden=view!=='monitor';$('#analysis-view').hidden=view!=='analysis';
+    $('#page-title').innerHTML=`${view==='radar'?'Passivradar':view==='analysis'?'Messauswertung':'Peilübersicht'}<span class="title-dot">.</span>`;
+    $('#page-subtitle').textContent=view==='radar'?'Rundfunksignale vergleichen. Verzögerung und Doppler untersuchen.':view==='analysis'?'Peilfehler über Richtung und Messprofil vergleichen.':'Signale verfolgen. Peilung vergleichen. Präzision verstehen.';
+    $('.page-heading .eyebrow').innerHTML=view==='radar'?'PASSIVRADAR <span>/</span> DAB+ & UKW':'RADIO DIRECTION FINDING <span>/</span> 433 MHz';
+    $('.heading-actions').hidden=view==='radar';$('.health-strip').hidden=view==='radar';
+    $('#mode-notice [data-open="source-dialog"]').hidden=view==='radar';
+    window.KrakenRadar?.setVisible(view==='radar');
     $$('.rail [data-view]').forEach(button=>{const active=button.dataset.view===view;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});
     requestAnimationFrame(()=>{drawAll();if(bearingView==='map')window.KrakenMap?.invalidateSize();});
   }
@@ -588,7 +602,7 @@
 
   async function init() {
     let theme='dark';try{theme=localStorage.getItem('krakendf-theme')||'dark';}catch(_){}
-    setTheme(theme==='light'?'light':'dark');setupListeners();
+    setTheme(theme==='light'?'light':'dark');setupListeners();window.KrakenRadar?.init();
     $('#utc-clock').textContent=`${utcTime()} UTC`;
     setInterval(()=>{$('#utc-clock').textContent=`${utcTime()} UTC`;if(lastStateAt&&Date.now()-lastStateAt>8000)setOnline(false);if(state){renderGPSHealth();renderGPS();}},1000);
     try {const result=await api('/api/arrays');presets=Array.isArray(result)?result:result.presets||[];}catch(_){}

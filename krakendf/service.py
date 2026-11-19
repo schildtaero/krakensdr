@@ -24,6 +24,8 @@ from .storage import SessionStore
 from .managed_daq import ManagedDAQ
 from .diagnostics import DiagnosticLog
 from .snr import estimate_packet_snr
+from .radar_service import PassiveRadarService
+from .passive_radar import PassiveRadarConfig
 
 
 def utcnow() -> str:
@@ -94,6 +96,8 @@ class DemoService:
         self._sim_start = time.monotonic()
         self._sessions_cache = []
         self._sessions_checked = 0
+        self.radar = PassiveRadarService(data_dir, self.daq, self.diagnostic_log,
+                                         event_callback=self.event)
 
     def _load_json(self, name, default):
         path = self.data_dir / name
@@ -116,12 +120,15 @@ class DemoService:
                 await self.stop_recording()
         finally:
             try:
-                await self._stop_source()
+                await self.radar.close()
             finally:
                 try:
-                    await self._stop_gps()
+                    await self._stop_source()
                 finally:
-                    self.diagnostic_log.close()
+                    try:
+                        await self._stop_gps()
+                    finally:
+                        self.diagnostic_log.close()
 
     async def _stop_source(self):
         task, self._task = self._task, None
@@ -304,6 +311,8 @@ class DemoService:
             raise ValueError("Quelle muss simulation, live oder idle sein.")
         if self.recording:
             raise ValueError("Vor dem Quellenwechsel die laufende Aufnahme stoppen.")
+        if self.radar.recording:
+            raise ValueError("Vor dem Quellenwechsel die Passivradar-Aufnahme stoppen.")
         if host is not None and (not isinstance(host, str) or not host.strip() or len(host) > 253 or any(c.isspace() for c in host)):
             raise ValueError("Ungültiger Heimdall-Hostname.")
         if port is not None and not 1 <= int(port) <= 65535:
@@ -314,6 +323,7 @@ class DemoService:
             use_managed = False
         if mode == "live" and use_managed and (candidate_host not in ("127.0.0.1", "localhost", "::1") or (port is not None and int(port) != 5000)):
             raise ValueError("Lokaler USB-Betrieb verwendet 127.0.0.1:5000. Für einen anderen Host externen Empfänger wählen.")
+        await self.radar.stop()
         await self._stop_source()
         if self._restore_config:
             self.config = self._restore_config
@@ -347,6 +357,8 @@ class DemoService:
         self.event(f"Quelle: {mode}")
 
     async def update_config(self, patch):
+        if self.radar.mode != "idle":
+            raise ValueError("Passivradar vor einer Änderung des Peilprofils stoppen.")
         if self.recording or self.replay:
             raise ValueError("Konfiguration erst nach Stoppen von Aufnahme oder Replay ändern.")
         candidate = AppConfig.model_validate({**self.config.model_dump(), **patch})
@@ -681,6 +693,8 @@ class DemoService:
             self.diagnostic_log.exception(f"Decoder {burst.channel['id']}", exc)
 
     async def start_recording(self, name="", kind="measurement"):
+        if self.radar.mode != "idle":
+            raise ValueError("Passivradar-Aufnahmen im Reiter Passivradar starten.")
         if self.recording:
             raise ValueError("Es läuft bereits eine Aufnahme.")
         if self.source["mode"] not in ("live", "simulation") or self.replay:
@@ -751,7 +765,7 @@ class DemoService:
         self.event("Winkelkorrektur aktiviert." if model_id else "Winkelkorrektur deaktiviert.")
 
     async def start_replay(self, session_id, speed=1):
-        if self.recording:
+        if self.recording or self.radar.recording:
             raise ValueError("Vor Replay die laufende Aufnahme stoppen.")
         if not .1 <= speed <= 20:
             raise ValueError("Replaygeschwindigkeit muss zwischen 0,1 und 20 liegen.")
@@ -761,6 +775,7 @@ class DemoService:
         events = list(self.store.iter_events(session_id))
         if not events:
             raise ValueError("Diese Aufnahme enthält keine Pakete.")
+        await self.radar.stop()
         await self._stop_source()
         if self._restore_config is None:
             self._restore_config = self.config
@@ -813,6 +828,37 @@ class DemoService:
     async def stop_replay(self):
         await self.set_source("idle")
 
+    async def start_radar(self, mode="live", host=None, port=None, managed=None):
+        """The coherent receiver has one owner: DF or passive radar."""
+        if mode not in ("live", "simulation"):
+            raise ValueError("Radarquelle muss live oder simulation sein.")
+        target_host = self.source["host"] if host is None else host
+        target_port = self.source["port"] if port is None else int(port)
+        use_managed = self.source["managed"] if managed is None else bool(managed)
+        if not isinstance(target_host, str) or not target_host.strip() or len(target_host) > 253 or any(c.isspace() for c in target_host):
+            raise ValueError("Ungültiger Heimdall-Hostname.")
+        if not 1 <= target_port <= 65535:
+            raise ValueError("Ungültiger TCP-Port.")
+        if use_managed and (target_host not in ("127.0.0.1", "localhost", "::1") or target_port != 5000):
+            raise ValueError("Lokaler USB-Betrieb verwendet 127.0.0.1:5000; sonst externen Empfänger wählen.")
+        await self.set_source("idle")
+        return await self.radar.start(mode, managed=use_managed, host=target_host, port=target_port)
+
+    async def start_radar_replay(self, session_id, speed=1):
+        if self.recording or self.radar.recording:
+            raise ValueError("Vor Replay die laufende Aufnahme stoppen.")
+        # Validate the recording before releasing a running receiver.
+        session = self.radar.store.get(session_id)
+        if not session.get("stopped_at"):
+            raise ValueError("Nur abgeschlossene Radar-Aufnahmen können wiedergegeben werden.")
+        if not session.get("frame_count"):
+            raise ValueError("Radar-Aufnahme enthält keine IQ-Fenster.")
+        PassiveRadarConfig.model_validate(session["config"])
+        if not .1 <= speed <= 20:
+            raise ValueError("Replaygeschwindigkeit muss zwischen 0,1 und 20 liegen.")
+        await self.set_source("idle")
+        return await self.radar.start_replay(session_id, speed)
+
     def snapshot(self):
         now = time.time()
         if now-self._sessions_checked > 1:
@@ -838,4 +884,4 @@ class DemoService:
                       "calibration": {"active_id": self.active_calibration_id, "coverage": counts, "models": self.models},
                       "replay": self.replay, "events": list(self.events), "symbols": self.symbols,
                       "decoder_capabilities": decoder_capabilities(), "manual_gains_db": MANUAL_GAINS_DB,
-                      "daq": self.daq.status()})
+                      "daq": self.daq.status(), "radar": self.radar.snapshot()})

@@ -1,4 +1,27 @@
-# Prüfung der Implementierung 0.2.3
+# Prüfung der Implementierung 0.3.0
+
+**233 automatisierte Tests bestanden** in 17,9 Sekunden. Der zusätzliche Passivradarpfad ist durch 44 neue Prüfungen abgesichert; die vorhandenen DF-, Decoder-, GPS-, Speicher- und DAQ-Tests bestehen weiterhin.
+
+- 13 DSP-Prüfungen: lineare Kreuzambiguität gegen direkte Summen ohne zirkulären Versatz, exakte FIR-LS-Unterdrückung gegen unabhängige Matrixrechnung, Verzögerung/Dopplervorzeichen und bistatische Einheiten, DAB/UKW bei 2,4 MS/s, gemeinsame Filterung/Dezimierung, Framegrenzen, Kohärenzverluste, Samplelücken, Detektionsmasken und Ressourcenlimits.
+- 16 Speicherprüfungen: unveränderte komplexe IQ-Paare mit realem Verzögerungspräfix, getrennte vollständige Karten, atomare Ereignisse und Wiederherstellung, Grenzen von Form/Größe/Pfaden, Aufnahmeherkunft, Lücken, 4-GiB-Limit und freie Reserve sowie numerischer Excel-Export.
+- Elf Laufzeitprüfungen: eigener oder externer DAQ, Aufräumen auch bei Start-/Speicherfehlern, kein Simulationsfallback, abweichende Empfangsparameter, begrenzte IQ-Warteschlange, unabhängige Konfiguration, ausdrückliche IQ-Simulation, identische Karten/Kandidaten/Zeitstempel nach Replay und Wiedergabe mit absolutem Zeitplan einschließlich Verarbeitung und Empfangslücken.
+- Vier HTTP-Gesamttests: getrennte persistente Profile, Assets/WebSocket, gegenseitiger Ausschluss von DF und Radar, Schutz laufender Aufnahmen, Livefehler, tatsächliche IQ-Simulation, Aufnahme, erneute DSP-Auswertung und Excel. Ein fehlgeschlagener Radarstart wechselt nicht selbstständig zur Simulation.
+
+Python-, JavaScript- und Shellsyntax sowie das installierbare Wheel 0.3.0 einschließlich der drei Radarmodule und lokalen UI-Assets wurden geprüft. Die bisherigen mitgelieferten Treiberquellen bleiben unverändert; ihre Hashprüfung besteht.
+
+Ein automatisierter Headless-Chromium-Lauf prüfte die neue Radaransicht auch gegen das laufende Backend: Navigation und Umschaltung, DAB-Simulation bei 2,4 MS/s mit berechneten Kandidaten, IQ-Aufnahme, Excel-Download, erneute Auswertung im Replay sowie Stop/erneute Konfiguration nach Replay und Live-Verbindungsfehler. Es traten keine JavaScript-Fehler auf. Desktop- und 390-Pixel-Mobilansicht wurden auf Bedienbarkeit und horizontalen Überlauf geprüft. Dies ist kein Test einer sichtbaren Windows-/WSL-Sitzung oder physischer Empfänger.
+
+Softwarebenchmark auf diesem Entwicklungsrechner: jeweils sechs Durchläufe mit 250-ms-CPI, einem Referenz- und einem Beobachtungskanal, acht FIR-Taps sowie `OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1`. Enthalten sind gemeinsame Filterung, Dezimierung, LS-Unterdrückung, Kreuzambiguität und Ergebnislisten; Simulator, HTTP, Browser und Speicherzugriffe sind nicht enthalten.
+
+| Eingang / Verzögerungszellen | Median je CPI | Größte gemessene CPI-Rechenzeit |
+|---|---:|---:|
+| DAB, 2,4 MS/s / 128 | 74,0 ms | 84,2 ms |
+| DAB, 2,4 MS/s / 512 | 78,5 ms | 80,9 ms |
+| UKW, 2,4 MS/s → 400 kS/s / 128 | 36,0 ms | 39,5 ms |
+
+Diese Messung belegt Softwarefunktion und Rechenaufwand auf diesem Host. Reale Rundfunkreferenz, Antennenentkopplung, Kraken-/USB-/WSL-Dauerbetrieb und Flugzeugreflexionen wurden nicht geprüft. Es gibt keine daraus abgeleitete Reichweiten- oder Genauigkeitszusage. Aufbau und Aussagegrenzen: [Passivradar](passivradar.md).
+
+## Vorheriger Prüfstand 0.2.3
 
 Stand: 17. November 2026. **189 automatisierte Tests bestanden** in 11,9 Sekunden.
 Zusätzlich zum vorherigen Stand sind geprüft:
